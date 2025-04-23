@@ -1,4 +1,5 @@
 # hybrid-llm-inference/tests/benchmarks/test_benchmarking.py
+import os
 import pytest
 import pandas as pd
 import numpy as np
@@ -7,6 +8,9 @@ from benchmarking.system_benchmarking import SystemBenchmarking
 from benchmarking.model_benchmarking import ModelBenchmarking
 from benchmarking.report_generator import ReportGenerator
 import json
+
+# 设置测试模式
+os.environ["TEST_MODE"] = "true"
 
 @pytest.fixture
 def mock_dataset(tmp_path):
@@ -33,8 +37,12 @@ def model_config():
     """Mock model configuration."""
     return {
         "models": {
-            "llama3": {"model_name": "meta-llama/Llama-3-8B", "mode": "local", "max_length": 512},
-            "falcon": {"model_name": "tiiuae/falcon-7b", "mode": "local", "max_length": 512}
+            "tinyllama": {
+                "model_name": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\TinyLlama-1.1B-Chat-v1.0",
+                "mode": "local",
+                "max_length": 512,
+                "local_files_only": True
+            }
         }
     }
 
@@ -73,7 +81,7 @@ def test_system_benchmarking_small_dataset(mock_dataset, hardware_config, model_
     
     benchmarker = SystemBenchmarking(mock_dataset, hardware_config, model_config, scheduler_config, output_dir=output_dir)
     thresholds = {"T_in": 32, "T_out": 32}
-    results = benchmarker.run_benchmarks(thresholds, model_name="llama3", sample_size=3)
+    results = benchmarker.run_benchmarks(thresholds, model_name="tinyllama", sample_size=3)
     
     assert "hybrid" in results
     assert "a100" in results
@@ -107,17 +115,17 @@ def test_model_benchmarking_small_dataset(mock_dataset, hardware_config, model_c
     benchmarker = ModelBenchmarking(mock_dataset, hardware_config, model_config, output_dir=output_dir)
     results = benchmarker.run_benchmarks(sample_size=3)
     
-    assert "llama3" in results
+    assert "tinyllama" in results
     assert "falcon" in results
-    assert "m1_pro" in results["llama3"]
-    assert "a100" in results["llama3"]
-    assert results["llama3"]["m1_pro"]["summary"]["total_tasks"] == 3
-    assert results["llama3"]["m1_pro"]["summary"]["avg_energy"] <= results["llama3"]["a100"]["summary"]["avg_energy"]
+    assert "m1_pro" in results["tinyllama"]
+    assert "a100" in results["tinyllama"]
+    assert results["tinyllama"]["m1_pro"]["summary"]["total_tasks"] == 3
+    assert results["tinyllama"]["m1_pro"]["summary"]["avg_energy"] <= results["tinyllama"]["a100"]["summary"]["avg_energy"]
     
     assert (output_dir / "model_benchmarks.json").exists()
     with open(output_dir / "model_benchmarks.json", "r") as f:
         saved_results = json.load(f)
-    assert saved_results["llama3"]["m1_pro"]["summary"]["avg_energy"] == results["llama3"]["m1_pro"]["summary"]["avg_energy"]
+    assert saved_results["tinyllama"]["m1_pro"]["summary"]["avg_energy"] == results["tinyllama"]["m1_pro"]["summary"]["avg_energy"]
 
 def test_model_benchmarking_empty_dataset(tmp_path, hardware_config, model_config, output_dir, monkeypatch):
     """Test model benchmarking with an empty dataset."""
@@ -160,7 +168,7 @@ def test_system_benchmarking_empty_dataset(tmp_path, hardware_config, model_conf
     thresholds = {"T_in": 32, "T_out": 32}
     
     with pytest.raises(ValueError, match="Dataset is empty"):
-        benchmarker.run_benchmarks(thresholds, model_name="llama3", sample_size=3)
+        benchmarker.run_benchmarks(thresholds, model_name="tinyllama", sample_size=3)
 
 def test_system_benchmarking_invalid_thresholds(mock_dataset, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
     """Test system benchmarking with invalid thresholds."""
@@ -175,7 +183,7 @@ def test_system_benchmarking_invalid_thresholds(mock_dataset, hardware_config, m
     thresholds = {"T_in": -1, "T_out": 32}
     
     with pytest.raises(ValueError, match="Thresholds must be positive"):
-        benchmarker.run_benchmarks(thresholds, model_name="llama3", sample_size=3)
+        benchmarker.run_benchmarks(thresholds, model_name="tinyllama", sample_size=3)
 
 def test_system_benchmarking_large_sample_size(mock_dataset, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
     """Test system benchmarking with a large sample size (simulated)."""
@@ -194,7 +202,7 @@ def test_system_benchmarking_large_sample_size(mock_dataset, hardware_config, mo
     
     benchmarker = SystemBenchmarking(mock_dataset, hardware_config, model_config, scheduler_config, output_dir=output_dir)
     thresholds = {"T_in": 32, "T_out": 32}
-    results = benchmarker.run_benchmarks(thresholds, model_name="llama3", sample_size=100)
+    results = benchmarker.run_benchmarks(thresholds, model_name="tinyllama", sample_size=100)
     
     assert results["hybrid"]["summary"]["total_tasks"] == 3  # Limited by dataset size
     assert results["hybrid"]["summary"]["avg_energy"] <= results["a100"]["summary"]["avg_energy"]

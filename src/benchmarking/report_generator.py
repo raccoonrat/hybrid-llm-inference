@@ -24,7 +24,22 @@ class ReportGenerator:
         Args:
             benchmark_results (dict): Results from SystemBenchmarking {strategy: {"metrics": list, "summary": dict}}.
             tradeoff_results (dict): Optional tradeoff results from TradeoffAnalyzer {lambda: {"energy": float, "runtime": float}}.
+            
+        Raises:
+            ValueError: 如果基准测试结果为空或权衡结果无效。
         """
+        # 验证基准测试结果
+        if not benchmark_results:
+            self.logger.error("基准测试结果为空")
+            raise ValueError("Benchmark results are empty")
+        
+        # 验证权衡结果
+        if tradeoff_results:
+            for lambda_val, metrics in tradeoff_results.items():
+                if metrics["energy"] < 0 or metrics["runtime"] < 0:
+                    self.logger.error(f"无效的权衡结果: lambda={lambda_val}, metrics={metrics}")
+                    raise ValueError("Invalid tradeoff results")
+        
         # Save summary report
         summary = {strategy: res["summary"] for strategy, res in benchmark_results.items()}
         report_path = self.output_dir / "benchmark_summary.json"

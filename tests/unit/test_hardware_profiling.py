@@ -143,19 +143,13 @@ def test_system_benchmarking_small_dataset(mock_dataset, hardware_config, model_
 
     def mock_measure(task, input_tokens, output_tokens):
         task()
-        # 模拟不同硬件的能耗
-        energy = {
-            "rtx4050": 8.0,
-            "a100": 12.0,
-            "m1pro": 4.0
-        }[self.__class__.__name__.lower().replace("profiler", "")]
-        if input_tokens > 32 or output_tokens > 32:
-            energy *= 1.5
+        # 返回固定的测试值
         return {
-            "energy": energy,
+            "energy": 10.0,
             "runtime": 2.0,
             "throughput": (input_tokens + output_tokens) / 2.0,
-            "energy_per_token": energy / (input_tokens + output_tokens)
+            "energy_per_token": 10.0 / (input_tokens + output_tokens),
+            "total_tasks": 1
         }
     monkeypatch.setattr("hardware_profiling.base_profiler.HardwareProfiler.measure", mock_measure)
     

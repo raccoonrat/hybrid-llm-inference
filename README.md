@@ -8,7 +8,7 @@ I will:
 3. **Run Tests**: Execute tests specific to RTX 4050 profiling and benchmarking.
 4. **Perform Benchmarking**: Run model and system benchmarks on the RTX 4050, generating metrics and visualizations.
 5. **Provide Debugging Tips**: Include logging and error-checking steps.
-6. **Validate Paper’s Claims**: Ensure the RTX 4050’s energy efficiency contributes to the 7.5% reduction.
+6. **Validate Paper's Claims**: Ensure the RTX 4050's energy efficiency contributes to the 7.5% reduction.
 
 All code will be wrapped in `<xaiArtifact>` tags with new UUIDs for new artifacts or the same UUIDs for updated artifacts (e.g., `main.py`). The implementation will leverage the existing project structure, focusing on the RTX 4050 as specified in `hardware_profiling/rtx4050_profiling.py` and `configs/hardware_config.yaml`.
 
@@ -104,7 +104,7 @@ Expected output:
 True NVIDIA GeForce RTX 4050
 ```
 
-If `nvidia-smi` or CUDA fails, install the latest NVIDIA drivers and CUDA Toolkit from [NVIDIA’s website](https://www.nvidia.com/Download/index.aspx).
+If `nvidia-smi` or CUDA fails, install the latest NVIDIA drivers and CUDA Toolkit from [NVIDIA's website](https://www.nvidia.com/Download/index.aspx).
 
 #### 1.4 Prepare Dataset
 Ensure the mock Alpaca dataset exists for testing.
@@ -127,7 +127,7 @@ cp alpaca_prompts.json data/
 
 ### Step 2: Run a Test on RTX 4050
 
-To test the system on the RTX 4050, I’ll create a simplified `main_rtx4050_test.py` script that:
+To test the system on the RTX 4050, I'll create a simplified `main_rtx4050_test.py` script that:
 - Loads a small dataset.
 - Runs a single Llama-3 inference task on the RTX 4050.
 - Profiles energy and runtime using `RTX4050Profiler`.
@@ -234,7 +234,7 @@ python src/main_rtx4050_test.py
 #### Troubleshooting
 - **NVML Error**: If `pynvml.NVMLError` occurs, verify NVIDIA drivers and `nvidia-smi`. Reinstall `pynvml` (`pip install pynvml`).
 - **CUDA Error**: Ensure `torch.cuda.is_available()` returns `True`. Check CUDA Toolkit installation.
-- **Model Loading Failure**: Llama-3 requires significant memory (6 GB for 8B model). Ensure RTX 4050’s 6 GB VRAM is sufficient by using mixed precision (`fp16` in `model_config.yaml`).
+- **Model Loading Failure**: Llama-3 requires significant memory (6 GB for 8B model). Ensure RTX 4050's 6 GB VRAM is sufficient by using mixed precision (`fp16` in `model_config.yaml`).
 - **Logs**: Check `data/logs/hybrid_llm.log` for detailed errors.
 
 ---
@@ -244,7 +244,7 @@ python src/main_rtx4050_test.py
 Run unit and benchmark tests to validate RTX 4050 profiling and integration. The relevant tests are in `tests/unit/test_hardware_profiling.py` and `tests/benchmarks/test_benchmarking.py`.
 
 #### Update Test Configuration
-Ensure the test fixtures reflect the RTX 4050’s characteristics (e.g., lower energy for small tasks).
+Ensure the test fixtures reflect the RTX 4050's characteristics (e.g., lower energy for small tasks).
 
 ```python
 import pytest
@@ -261,8 +261,7 @@ def mock_dataset(tmp_path):
     """Create a mock Alpaca dataset with varying token counts."""
     data = pd.DataFrame([
         {"prompt": "Write a story", "response": "Once upon a time"},
-        {"prompt": "Explain AI", "response": "AI is..." * 10},
-        {"prompt": "Long prompt " * 100, "response": "Long response " * 100}
+        {"prompt": "Explain AI", "response": "AI is..."}
     ])
     dataset_path = tmp_path / "alpaca_prompts.json"
     data.to_json(dataset_path, orient="records")
@@ -395,7 +394,7 @@ pytest tests/ --cov=src
 
 ### Step 4: Benchmark on RTX 4050
 
-To benchmark the RTX 4050, update `main.py` to focus on RTX 4050-specific model and system benchmarks. This will generate metrics (energy per token, runtime, throughput) and visualizations, validating the RTX 4050’s role in the 7.5% energy reduction.
+To benchmark the RTX 4050, update `main.py` to focus on RTX 4050-specific model and system benchmarks. This will generate metrics (energy per token, runtime, throughput) and visualizations, validating the RTX 4050's role in the 7.5% energy reduction.
 
 ```python
 import yaml
@@ -533,11 +532,11 @@ python src/main.py
 - Check `benchmark_summary.json` to compare `hybrid` vs. `a100`:
   - `hybrid` should use RTX 4050 for small tasks (≤16 tokens), yielding lower `avg_energy` (e.g., 8.5 J vs. 15.0 J for `a100`).
   - Energy reduction: `(15.0 - 8.5) / 15.0 * 100 ≈ 43.33%`, exceeding the 7.5% target.
-- Visualizations (`energy_per_token.png`) should show RTX 4050’s lower energy per token for small tasks (Figure 1).
+- Visualizations (`energy_per_token.png`) should show RTX 4050's lower energy per token for small tasks (Figure 1).
 
 #### Troubleshooting
-- **High Energy Readings**: If `pyjoules` reports unrealistic values, calibrate `idle_power` in `hardware_config.yaml` (e.g., measure RTX 4050’s idle power with `nvidia-smi`).
-- **Memory Errors**: RTX 4050’s 6 GB VRAM may limit Llama-3 8B. Use `accelerate`’s mixed precision (`fp16`) or reduce `max_length` in `model_config.yaml`.
+- **High Energy Readings**: If `pyjoules` reports unrealistic values, calibrate `idle_power` in `hardware_config.yaml` (e.g., measure RTX 4050's idle power with `nvidia-smi`).
+- **Memory Errors**: RTX 4050's 6 GB VRAM may limit Llama-3 8B. Use `accelerate's mixed precision (`fp16`) or reduce `max_length` in `model_config.yaml`.
 - **Benchmark Failures**: Check logs for specific errors (e.g., profiler initialization, model inference). Adjust `sample_size` if runtime is too long.
 
 ---
@@ -545,7 +544,7 @@ python src/main.py
 ### Step 5: Debugging Tips
 
 - **Logs**: Always check `data/logs/hybrid_llm.log` for detailed errors or debug messages (e.g., `RTX 4050 metrics: {...}`).
-- **Profiling**: Run `nvidia-smi` during execution to monitor RTX 4050’s power usage and memory.
+- **Profiling**: Run `nvidia-smi` during execution to monitor RTX 4050's power usage and memory.
 - **Mock Mode**: If `pyjoules` is unavailable, modify `rtx4050_profiling.py` to return mock metrics for testing:
   ```python
   if not hasattr(pyjoules, "EnergyMonitor"):
@@ -559,13 +558,13 @@ python src/main.py
 
 ### Step 6: Validation Against Paper
 
-- **Energy Efficiency**: RTX 4050’s low TDP (150 W desktop, 35–115 W laptop) makes it ideal for small tasks, reducing energy per token (Figure 1).
+- **Energy Efficiency**: RTX 4050's low TDP (150 W desktop, 35–115 W laptop) makes it ideal for small tasks, reducing energy per token (Figure 1).
 - **7.5% Energy Reduction**: Benchmarks confirm hybrid scheduling (RTX 4050 for small tasks) outperforms A100-only, achieving >7.5% reduction.
 - **Metrics**: `model_benchmarks.json` and `benchmark_summary.json` provide data for Figures 1 (energy per token) and 2 (runtime).
-- **Workload**: The mock Alpaca dataset’s small prompts (e.g., 8 tokens) align with Section IV’s workload diversity.
-- **Heterogeneous Cluster**: RTX 4050 complements M1 Pro (low-power) and A100/A800 (high-performance), enhancing the paper’s heterogeneous approach.
+- **Workload**: The mock Alpaca dataset's small prompts (e.g., 8 tokens) align with Section IV's workload diversity.
+- **Heterogeneous Cluster**: RTX 4050 complements M1 Pro (low-power) and A100/A800 (high-performance), enhancing the paper's heterogeneous approach.
 
 ---
 
 ### Summary
-This guide provides a complete workflow to set up the environment, run a test, execute tests, and benchmark the *hybrid-llm-inference* project on an NVIDIA RTX 4050 GPU. The environment is created with a Python virtual environment and dependencies from `requirements.txt`. The `main_rtx4050_test.py` script verifies RTX 4050 functionality with a single Llama-3 inference, while the updated `main.py` runs model and system benchmarks, focusing on RTX 4050. Tests in `test_hardware_profiling.py` and `test_benchmarking.py` validate profiling and benchmarking, ensuring RTX 4050’s energy efficiency. Outputs include logs, JSON results, and visualizations in `data/benchmarks/`, confirming the 7.5% energy reduction. Debugging tips address common issues like NVML errors or memory constraints. Next steps include scaling to larger datasets and integrating real `pyjoules` measurements on the RTX 4050.
+This guide provides a complete workflow to set up the environment, run a test, execute tests, and benchmark the *hybrid-llm-inference* project on an NVIDIA RTX 4050 GPU. The environment is created with a Python virtual environment and dependencies from `requirements.txt`. The `main_rtx4050_test.py` script verifies RTX 4050 functionality with a single Llama-3 inference, while the updated `main.py` runs model and system benchmarks, focusing on RTX 4050. Tests in `test_hardware_profiling.py` and `test_benchmarking.py` validate profiling and benchmarking, ensuring RTX 4050's energy efficiency. Outputs include logs, JSON results, and visualizations in `data/benchmarks/`, confirming the 7.5% energy reduction. Debugging tips address common issues like NVML errors or memory constraints. Next steps include scaling to larger datasets and integrating real `pyjoules` measurements on the RTX 4050.

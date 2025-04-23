@@ -1,0 +1,13 @@
+hardware:
+  rtx4050:
+    type: "rtx4050"
+    device_id: 0
+    idle_power: 15.0
+    sample_interval: 200
+    memory_limit: 6144  # 6GB
+    compute_capability: 8.9
+    cuda_cores: 2560
+    boost_clock: 2400  # MHz
+    memory_clock: 18000  # MHz
+    memory_bus_width: 96  # bits
+    tdp: 115  # Watts 

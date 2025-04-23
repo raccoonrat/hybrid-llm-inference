@@ -2,6 +2,7 @@
 from .falcon import LocalFalcon, APIFalcon
 from .llama3 import LocalLlama3, APILlama3
 from .mistral import LocalMistral, APIMistral
+from .tinyllama import LocalTinyLlama
 
 def get_model(model_name, mode, config):
     """
@@ -18,8 +19,9 @@ def get_model(model_name, mode, config):
     model_map = {
         "falcon": {"local": LocalFalcon, "api": APIFalcon},
         "llama3": {"local": LocalLlama3, "api": APILlama3},
-        "mistral": {"local": LocalMistral, "api": APIMistral}
+        "mistral": {"local": LocalMistral, "api": APIMistral},
+        "tinyllama": {"local": LocalTinyLlama}  # TinyLlama 只支持本地模式
     }
     if model_name not in model_map or mode not in model_map[model_name]:
         raise ValueError(f"Unsupported model {model_name} or mode {mode}")
-    return model_map[model_name][mode](config.get("model_name"), config)
+    return model_map[model_name][mode](config["model_name"], config)
