@@ -1,0 +1,20 @@
+# hybrid-llm-inference/configs/model_config.yaml
+models:
+  llama3:
+    model_name: meta-llama/Llama-3-8B
+    mode: local
+    max_length: 512
+    mixed_precision: fp16
+    device_placement: true
+  falcon:
+    model_name: tiiuae/falcon-7b
+    mode: local
+    max_length: 512
+    mixed_precision: fp16
+    device_placement: true
+  mistral:
+    model_name: mistralai/Mixtral-7B-v0.1
+    mode: local
+    max_length: 512
+    mixed_precision: fp16
+    device_placement: true

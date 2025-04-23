@@ -1,0 +1,5 @@
+[
+    {"prompt": "Write a short story about a dragon.", "response": "Once upon a time, a dragon named Ember lived in a cave."},
+    {"prompt": "Explain artificial intelligence.", "response": "Artificial intelligence is the simulation of human intelligence in machines."},
+    {"prompt": "Write a long essay about AI ethics.", "response": "AI ethics is a critical field that examines the moral implications of artificial intelligence technologies..." * 10}
+]

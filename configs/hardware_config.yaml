@@ -1,0 +1,20 @@
+# hybrid-llm-inference/configs/hardware_config.yaml
+m1_pro:
+  type: cpu_gpu
+  idle_power: 10.0
+  sample_interval: 200
+a100:
+  type: gpu
+  device_id: 0
+  idle_power: 40.0
+  sample_interval: 200
+rtx4050:
+  type: gpu
+  device_id: 1
+  idle_power: 15.0
+  sample_interval: 200
+a800:
+  type: gpu
+  device_id: 2
+  idle_power: 50.0
+  sample_interval: 200
