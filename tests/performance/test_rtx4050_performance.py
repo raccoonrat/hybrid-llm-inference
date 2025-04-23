@@ -2,6 +2,7 @@ import pytest
 import time
 import psutil
 import torch
+import os
 from hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from toolbox.logger import get_logger
 
@@ -11,12 +12,15 @@ class TestRTX4050Performance:
     @classmethod
     def setup_class(cls):
         """测试类初始化"""
+        # 设置测试模式环境变量
+        os.environ['TEST_MODE'] = '1'
+        
         cls.config = {
             "device_id": 0,
             "idle_power": 15.0,
             "sample_interval": 200
         }
-        cls.profiler = RTX4050Profiler(cls.config)
+        cls.profiler = RTX4050Profiler(**cls.config)
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"使用设备: {cls.device}")
         

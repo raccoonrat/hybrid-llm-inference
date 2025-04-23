@@ -2,6 +2,9 @@
 import pytest
 import pandas as pd
 import yaml
+import json
+import pickle
+import os
 from pathlib import Path
 from dataset_manager.alpaca_loader import AlpacaLoader
 from data_processing.token_processing import TokenProcessing
@@ -12,6 +15,7 @@ from scheduling.task_allocator import TaskAllocator
 from benchmarking.system_benchmarking import SystemBenchmarking
 from benchmarking.report_generator import ReportGenerator
 from toolbox.config_manager import ConfigManager
+from system_integration.pipeline import SystemPipeline
 
 @pytest.fixture
 def tmp_dir(tmp_path):
@@ -58,17 +62,51 @@ def mock_configs(tmp_dir):
     return config_dir
 
 @pytest.fixture
-def mock_distribution(tmp_dir):
+def mock_data(tmp_path):
+    """创建模拟数据"""
+    data = [
+        {"prompt": "test1", "response": "response1"},
+        {"prompt": "test2", "response": "response2"}
+    ]
+    file_path = tmp_path / "test.json"
+    with open(file_path, "w") as f:
+        json.dump(data, f)
+    return file_path
+
+@pytest.fixture
+def mock_distribution(tmp_path):
+    """创建模拟分布"""
     dist = {
-        'distribution': {
-            'input_distribution': {10: 100, 20: 50},
-            'output_distribution': {30: 80, 40: 70}
-        }
+        "input_distribution": {10: 100, 20: 50},
+        "output_distribution": {30: 80, 40: 70}
     }
-    dist_path = tmp_dir / "token_distribution.pkl"
-    with open(dist_path, 'wb') as f:
+    dist_path = tmp_path / "distribution.pkl"
+    with open(dist_path, "wb") as f:
         pickle.dump(dist, f)
     return dist_path
+
+def test_full_system_pipeline(mock_data, mock_distribution, tmp_path):
+    """测试完整系统流水线"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
+    
+    pipeline = SystemPipeline(
+        data_path=mock_data,
+        distribution_path=mock_distribution,
+        output_dir=tmp_path,
+        model_name="tinyllama",
+        model_path="models/TinyLlama-1.1B-Chat-v1.0",
+        mode="local"
+    )
+    
+    results = pipeline.run()
+    
+    assert results is not None
+    assert isinstance(results, dict)
+    assert "energy" in results
+    assert "runtime" in results
+    assert results["energy"] >= 0
+    assert results["runtime"] >= 0
 
 def test_full_system_pipeline(mock_dataset, mock_configs, mock_distribution, tmp_dir, monkeypatch):
     # Mock dependencies

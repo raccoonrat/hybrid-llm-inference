@@ -1,5 +1,6 @@
 # hybrid-llm-inference/tests/unit/test_scheduling.py
 import pytest
+import os
 from scheduling.token_based_scheduler import TokenBasedScheduler
 from scheduling.task_allocator import TaskAllocator
 
@@ -14,17 +15,27 @@ def scheduler_config():
 
 @pytest.fixture
 def hardware_config():
+    """硬件配置"""
     return {
         "m1_pro": {"type": "cpu_gpu", "idle_power": 10.0},
-        "a100": {"type": "gpu", "device_id": 0}
+        "a100": {"type": "gpu", "device_id": 0},
+        "rtx4050": {
+            "type": "gpu",
+            "device_id": 0,
+            "idle_power": 15.0,
+            "sample_interval": 200
+        }
     }
 
 @pytest.fixture
 def model_config():
+    """模型配置"""
     return {
-        "models": {
-            "llama3": {"model_name": "meta-llama/Llama-3-8B", "mode": "local", "max_length": 512}
-        }
+        "model_name": "tinyllama",
+        "model_path": "models/TinyLlama-1.1B-Chat-v1.0",
+        "mode": "local",
+        "batch_size": 1,
+        "max_length": 128
     }
 
 def test_token_based_scheduler(scheduler_config):
@@ -50,38 +61,35 @@ def test_token_based_scheduler_empty_data(scheduler_config):
     
     assert len(allocations) == 0
 
-def test_task_allocator(hardware_config, model_config, monkeypatch):
-    def mock_measure(task, input_tokens, output_tokens):
-        task()
-        return {"energy": 10.0, "runtime": 2.0, "throughput": 15.0, "energy_per_token": 0.5}
-    monkeypatch.setattr("hardware_profiling.base_profiler.HardwareProfiler.measure", mock_measure)
-    def mock_infer(prompt): return "Mock response"
-    monkeypatch.setattr("model_zoo.base_model.BaseModel.infer", mock_infer)
+def test_task_allocator(hardware_config, model_config):
+    """测试任务分配器"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
     
-    allocator = TaskAllocator(hardware_config, model_config)
+    allocator = TaskAllocator(
+        hardware_config=hardware_config,
+        model_config=model_config
+    )
     
-    allocations = [
-        {"query": {"prompt": "Write a story", "input_tokens": 10, "output_tokens": 20}, "hardware": "m1_pro"},
-        {"query": {"prompt": "Explain AI", "input_tokens": 50, "output_tokens": 60}, "hardware": "a100"}
-    ]
+    # 测试任务分配
+    task = {
+        "input_tokens": 32,
+        "output_tokens": 32
+    }
     
-    results = allocator.allocate(allocations, model_name="llama3")
-    
-    assert len(results) == 2
-    assert results[0]["metrics"]["energy"] == 10.0
-    assert results[0]["query"] == allocations[0]["query"]
+    device = allocator.allocate(task)
+    assert device in ["m1_pro", "a100", "rtx4050"]
 
-def test_task_allocator_invalid_hardware(hardware_config, model_config, monkeypatch):
-    def mock_measure(task, input_tokens, output_tokens):
-        task()
-        return {"energy": 10.0, "runtime": 2.0, "throughput": 15.0, "energy_per_token": 0.5}
-    monkeypatch.setattr("hardware_profiling.base_profiler.HardwareProfiler.measure", mock_measure)
-    def mock_infer(prompt): return "Mock response"
-    monkeypatch.setattr("model_zoo.base_model.BaseModel.infer", mock_infer)
+def test_task_allocator_invalid_hardware(hardware_config, model_config):
+    """测试无效硬件配置"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
     
-    allocator = TaskAllocator(hardware_config, model_config)
+    invalid_config = hardware_config.copy()
+    invalid_config["invalid"] = {"type": "invalid"}
     
-    allocations = [{"query": {"prompt": "Test", "input_tokens": 10, "output_tokens": 20}, "hardware": "invalid"}]
-    results = allocator.allocate(allocations, model_name="llama3")
-    
-    assert len(results) == 0
+    with pytest.raises(ValueError, match="Invalid hardware type"):
+        TaskAllocator(
+            hardware_config=invalid_config,
+            model_config=model_config
+        )

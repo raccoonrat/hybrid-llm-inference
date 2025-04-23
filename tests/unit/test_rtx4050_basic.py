@@ -50,18 +50,27 @@ def test_invalid_config():
     with pytest.raises(ValueError):
         RTX4050Profiler(config)
 
-def test_rtx4050_measure(monkeypatch):
-    """测试 RTX4050 的测量功能"""
-    profiler = RTX4050Profiler(test_mode=True)
+def test_rtx4050_measure():
+    """测试 RTX4050 功率测量"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
     
-    def mock_measure(task, input_tokens, output_tokens):
-        task()
-        return {
-            "energy": 8.0,
-            "runtime": 1.5,
-            "throughput": (input_tokens + output_tokens) / 1.5,
-            "energy_per_token": 8.0 / (input_tokens + output_tokens),
-            "total_tasks": 1
-        }
+    profiler = RTX4050Profiler(
+        device_id=0,
+        idle_power=15.0,
+        sample_interval=200
+    )
     
-    monkeypatch.setattr(profiler, "measure", mock_measure) 
+    # 测试空闲状态功率测量
+    power = profiler.measure_power()
+    assert power >= 0, "功率测量值不应为负"
+    
+    # 测试测量方法
+    def test_task():
+        return "test"
+    
+    metrics = profiler.measure(test_task, input_tokens=1, output_tokens=1)
+    assert "energy" in metrics
+    assert "runtime" in metrics
+    assert metrics["energy"] >= 0
+    assert metrics["runtime"] >= 0 

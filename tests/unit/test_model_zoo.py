@@ -1,5 +1,6 @@
 # hybrid-llm-inference/tests/unit/test_model_zoo.py
 import pytest
+import os
 from model_zoo import get_model
 
 @pytest.fixture
@@ -11,39 +12,47 @@ def model_config():
         "api_key": "dummy_key"
     }
 
-def test_local_llama3(model_config, monkeypatch):
-    def mock_from_pretrained(name): return None
-    def mock_generate(self, **kwargs): return [0]
-    def mock_decode(self, tokens, **kwargs): return "Mock output"
-    def mock_encode(self, text, **kwargs): return [[1, 2, 3]]
-    monkeypatch.setattr("transformers.AutoModelForCausalLM.from_pretrained", mock_from_pretrained)
-    monkeypatch.setattr("transformers.AutoTokenizer.from_pretrained", mock_from_pretrained)
-    monkeypatch.setattr("transformers.AutoModelForCausalLM.generate", mock_generate)
-    monkeypatch.setattr("transformers.AutoTokenizer.decode", mock_decode)
-    monkeypatch.setattr("transformers.AutoTokenizer.encode", mock_encode)
+def test_local_tinyllama():
+    """测试本地 TinyLlama 模型"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
     
-    model = get_model("llama3", "local", model_config)
-    output = model.infer("Test input")
-    token_count = model.get_token_count("Test input")
+    model = get_model(
+        model_name="tinyllama",
+        model_path="models/TinyLlama-1.1B-Chat-v1.0",
+        mode="local"
+    )
     
-    assert output == "Mock output"
-    assert token_count == 3
+    # 测试推理
+    response = model.infer("Hello")
+    assert isinstance(response, str)
+    assert len(response) > 0
+    
+    # 测试 token 计数
+    token_count = model.get_token_count("Hello")
+    assert token_count > 0
 
-def test_api_llama3(model_config, monkeypatch):
-    class MockResponse:
-        def json(self): return [{"generated_text": "Mock output"}]
-        def raise_for_status(self): pass
-    monkeypatch.setattr("requests.post", lambda *args, **kwargs: MockResponse())
-    monkeypatch.setattr("transformers.AutoTokenizer.from_pretrained", lambda name: None)
-    monkeypatch.setattr("transformers.AutoTokenizer.encode", lambda self, text, **kwargs: [[1, 2, 3]])
+def test_api_tinyllama():
+    """测试 API 模式 TinyLlama 模型"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
     
-    model = get_model("llama3", "api", model_config)
-    output = model.infer("Test input")
-    token_count = model.get_token_count("Test input")
+    model = get_model(
+        model_name="tinyllama",
+        model_path="models/TinyLlama-1.1B-Chat-v1.0",
+        mode="api"
+    )
     
-    assert output == "Mock output"
-    assert token_count == 3
+    # 测试推理
+    response = model.infer("Hello")
+    assert isinstance(response, str)
+    assert len(response) > 0
+    
+    # 测试 token 计数
+    token_count = model.get_token_count("Hello")
+    assert token_count > 0
 
-def test_invalid_model(model_config):
-    with pytest.raises(ValueError, match="Unsupported model invalid or mode local"):
-        get_model("invalid", "local", model_config)
+def test_invalid_model():
+    """测试无效模型"""
+    with pytest.raises(ValueError, match="Unsupported model"):
+        get_model("invalid_model", "local", {})

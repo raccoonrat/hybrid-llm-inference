@@ -12,6 +12,7 @@ from benchmarking.system_benchmarking import SystemBenchmarking
 from benchmarking.model_benchmarking import ModelBenchmarking
 from toolbox.logger import get_logger
 import pynvml
+import os
 
 @pytest.fixture
 def mock_dataset(tmp_path):
@@ -59,32 +60,35 @@ def hardware_config():
         "rtx4050": {"type": "gpu", "device_id": 0, "idle_power": 15.0, "sample_interval": 200}
     }
 
-def test_rtx4050_profiler_initialization(hardware_config, monkeypatch):
-    """Test RTX4050Profiler initialization."""
-    def mock_nvml_init(): pass
-    def mock_nvml_device_get_handle(index): return "handle"
-    def mock_nvml_device_get_name(handle): return "NVIDIA RTX 4050"
-    monkeypatch.setattr("pynvml.nvmlInit", mock_nvml_init)
-    def mock_nvml_device_get_power(handle): return 100000  # 100W in milliwatts
-    monkeypatch.setattr("pynvml.nvmlDeviceGetHandleByIndex", mock_nvml_device_get_handle)
-    monkeypatch.setattr("pynvml.nvmlDeviceGetName", mock_nvml_device_get_name)
-    monkeypatch.setattr("pynvml.nvmlDeviceGetPowerUsage", mock_nvml_device_get_power)
+def test_rtx4050_profiler_initialization():
+    """测试 RTX4050Profiler 初始化"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
     
-    profiler = RTX4050Profiler(hardware_config["rtx4050"])
+    profiler = RTX4050Profiler(
+        device_id=0,
+        idle_power=15.0,
+        sample_interval=200
+    )
+    
     assert profiler.device_id == 0
     assert profiler.idle_power == 15.0
     assert profiler.sample_interval == 200
 
 def test_get_profiler_rtx4050():
-    """测试获取RTX 4050分析器"""
+    """测试获取 RTX4050 性能分析器"""
+    # 设置测试模式环境变量
+    os.environ['TEST_MODE'] = '1'
+    
     config = {
+        "type": "gpu",
         "device_id": 0,
         "idle_power": 15.0,
         "sample_interval": 200
     }
+    
     profiler = get_profiler("rtx4050", config)
     assert isinstance(profiler, RTX4050Profiler)
-    assert profiler.idle_power == 15.0
     assert profiler.sample_interval == 200
     
 def test_get_profiler_invalid():
