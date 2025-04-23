@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 from pathlib import Path
 from dataset_manager.alpaca_loader import AlpacaLoader
-from dataset_manager.data_processing import DataProcessing
+from data_processing.token_processing import TokenProcessing
 from model_zoo import get_model
 
 @pytest.fixture
@@ -45,7 +45,9 @@ def test_data_processing(mock_dataset, model_config, monkeypatch):
     monkeypatch.setattr("model_zoo.base_model.BaseModel.get_token_count", mock_get_token_count)
     
     loader = AlpacaLoader(mock_dataset)
-    processor = DataProcessing(loader, model_config)
+    data = loader.load()
+    model = get_model(model_config["model_name"], model_config["mode"], model_config)
+    processor = TokenProcessing(data, {"llama3": model})
     token_data = processor.get_token_data()
     
     assert len(token_data) == 2
@@ -62,7 +64,9 @@ def test_data_processing_no_response(mock_dataset, model_config, monkeypatch):
     data.to_json(dataset_path, orient="records")
     
     loader = AlpacaLoader(dataset_path)
-    processor = DataProcessing(loader, model_config)
+    data = loader.load()
+    model = get_model(model_config["model_name"], model_config["mode"], model_config)
+    processor = TokenProcessing(data, {"llama3": model})
     token_data = processor.get_token_data()
     
     assert token_data[0]["output_tokens"] == 0

@@ -4,7 +4,7 @@ import pandas as pd
 import yaml
 from pathlib import Path
 from dataset_manager.alpaca_loader import AlpacaLoader
-from dataset_manager.data_processing import DataProcessing
+from data_processing.token_processing import TokenProcessing
 from optimization_engine.threshold_optimizer import ThresholdOptimizer
 from optimization_engine.tradeoff_analyzer import TradeoffAnalyzer
 from scheduling.token_based_scheduler import TokenBasedScheduler
@@ -90,7 +90,11 @@ def test_full_system_pipeline(mock_dataset, mock_configs, mock_distribution, tmp
     
     # Step 1: Load and process dataset
     loader = AlpacaLoader(mock_dataset)
-    processor = DataProcessing(loader, model_config["models"]["llama3"])
+    data = loader.load()
+    model = get_model(model_config["models"]["llama3"]["model_name"], 
+                     model_config["models"]["llama3"]["mode"], 
+                     model_config["models"]["llama3"])
+    processor = TokenProcessing(data, {"llama3": model})
     token_data = processor.get_token_data()
     
     assert len(token_data) == 2
