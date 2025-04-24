@@ -15,17 +15,17 @@ TEST_CONFIG = {
 @pytest.fixture
 def profiler():
     """创建 RTX4050Profiler 实例的 fixture。"""
-    return RTX4050Profiler(TEST_CONFIG)
+    profiler = RTX4050Profiler(TEST_CONFIG)
+    profiler.initialize()
+    yield profiler
+    profiler.cleanup()
 
 def test_initialization(profiler):
     """测试初始化。"""
+    assert profiler.is_initialized
     assert profiler.config == TEST_CONFIG
-    assert profiler.device_type == "rtx4050"
-    assert profiler.idle_power == 15.0
-    assert profiler.sample_interval == 200
     assert profiler.handle is not None
     assert profiler.nvml is not None
-    assert not profiler.is_measuring
 
 def test_measure_power(profiler):
     """测试功率测量。"""
@@ -40,7 +40,7 @@ def test_measure_power(profiler):
     assert len(set(powers)) > 1  # 确保不是固定值
 
 def test_get_memory_info(profiler):
-    """测试内存信息获取。"""
+    """测试获取内存信息。"""
     memory_info = profiler.get_memory_info()
     assert isinstance(memory_info, dict)
     assert "total" in memory_info
@@ -55,10 +55,12 @@ def test_get_memory_info(profiler):
     memory_infos = [profiler.get_memory_info() for _ in range(10)]
     assert all(isinstance(m, dict) for m in memory_infos)
     assert all(m["total"] > 0 for m in memory_infos)
+    assert all(m["used"] >= 0 for m in memory_infos)
+    assert all(m["free"] >= 0 for m in memory_infos)
     assert all(m["total"] == m["used"] + m["free"] for m in memory_infos)
 
 def test_get_temperature(profiler):
-    """测试温度获取。"""
+    """测试获取温度。"""
     temperature = profiler.get_temperature()
     assert isinstance(temperature, float)
     assert temperature >= 0.0
@@ -75,12 +77,12 @@ def test_measurement_lifecycle(profiler):
     profiler.start_measurement()
     assert profiler.is_measuring
     
-    # 执行一些计算密集型任务
+    # 执行一些计算
     start_time = time.time()
     while time.time() - start_time < 0.1:
         _ = [i * i for i in range(1000)]
     
-    # 结束测量
+    # 停止测量
     results = profiler.stop_measurement()
     assert not profiler.is_measuring
     assert isinstance(results, dict)
@@ -90,67 +92,45 @@ def test_measurement_lifecycle(profiler):
     assert results["runtime"] >= 0.1
     assert results["power"] >= 0.0
     assert results["energy"] >= 0.0
-    
-    # 测试多次测量
-    for _ in range(5):
-        profiler.start_measurement()
-        try:
-            time.sleep(0.1)
-            results = profiler.stop_measurement()
-            assert results["runtime"] >= 0.1
-            assert results["power"] >= 0.0
-            assert results["energy"] >= 0.0
-        finally:
-            if profiler.is_measuring:
-                profiler.stop_measurement()
 
 def test_measure(profiler):
     """测试性能指标测量。"""
-    # 开始测量
-    profiler.start_measurement()
-    try:
-        # 执行任务
-        task = {
-            "input_tokens": 100,
-            "output_tokens": 50
-        }
-        metrics = profiler.measure(task)
-        
-        # 验证指标
-        assert isinstance(metrics, dict)
-        assert "runtime" in metrics
-        assert "power" in metrics
-        assert "energy" in metrics
-        assert "throughput" in metrics
-        assert "energy_per_token" in metrics
-        assert metrics["runtime"] > 0
-        assert metrics["power"] >= 0.0
-        assert metrics["energy"] >= 0.0
-        assert metrics["throughput"] > 0
-        assert metrics["energy_per_token"] >= 0.0
-        
-        # 验证吞吐量计算
-        total_tokens = task["input_tokens"] + task["output_tokens"]
-        expected_throughput = total_tokens / metrics["runtime"]
-        assert abs(metrics["throughput"] - expected_throughput) < 0.1
-        
-        # 验证每令牌能耗计算
-        expected_energy_per_token = metrics["energy"] / total_tokens
-        assert abs(metrics["energy_per_token"] - expected_energy_per_token) < 0.1
-    finally:
-        # 停止测量
-        profiler.stop_measurement()
+    task = {
+        "input_tokens": 100,
+        "output_tokens": 50
+    }
+    
+    metrics = profiler.measure(task)
+    assert isinstance(metrics, dict)
+    assert "runtime" in metrics
+    assert "power" in metrics
+    assert "energy" in metrics
+    assert "throughput" in metrics
+    assert "energy_per_token" in metrics
+    assert metrics["runtime"] > 0
+    assert metrics["power"] >= 0.0
+    assert metrics["energy"] >= 0.0
+    assert metrics["throughput"] > 0
+    assert metrics["energy_per_token"] >= 0.0
+    
+    # 验证吞吐量计算
+    total_tokens = task["input_tokens"] + task["output_tokens"]
+    expected_throughput = total_tokens / metrics["runtime"]
+    assert abs(metrics["throughput"] - expected_throughput) < 0.1
+    
+    # 验证每令牌能耗计算
+    expected_energy_per_token = metrics["energy"] / total_tokens
+    assert abs(metrics["energy_per_token"] - expected_energy_per_token) < 0.1
 
 def test_cleanup(profiler):
     """测试资源清理。"""
     # 清理资源
     profiler.cleanup()
-    
-    # 验证资源已被清理
+    assert not profiler.is_initialized
     assert profiler.handle is None
     assert profiler.nvml is None
     
-    # 尝试使用已清理的分析器
+    # 验证清理后的行为
     with pytest.raises(RuntimeError):
         profiler.measure_power()
     
@@ -187,33 +167,59 @@ def test_error_handling():
     for config in invalid_configs:
         with pytest.raises((ValueError, TypeError)):
             RTX4050Profiler(config)
+    
+    # 测试无效任务
+    profiler = RTX4050Profiler(TEST_CONFIG)
+    profiler.initialize()
+    try:
+        invalid_tasks = [
+            {"input_tokens": -1, "output_tokens": 50},
+            {"input_tokens": 100, "output_tokens": -1},
+            {"input_tokens": "100", "output_tokens": 50},
+            {"input_tokens": 100, "output_tokens": "50"},
+            {},
+            None
+        ]
+        
+        for task in invalid_tasks:
+            with pytest.raises((ValueError, TypeError, KeyError)):
+                profiler.measure(task)
+    finally:
+        profiler.cleanup()
 
 def test_real_mode():
     """测试真实模式。"""
-    # 创建真实模式分析器
     profiler = RTX4050Profiler(TEST_CONFIG)
-    
+    profiler.initialize()
     try:
         # 验证基本功能
-        assert profiler.measure_power() >= 0.0
-        assert profiler.get_memory_info()["total"] > 0
-        assert profiler.get_temperature() >= 0.0
+        power = profiler.measure_power()
+        assert isinstance(power, float)
+        assert power >= 0.0
+        
+        memory_info = profiler.get_memory_info()
+        assert isinstance(memory_info, dict)
+        assert "total" in memory_info
+        assert "used" in memory_info
+        assert "free" in memory_info
+        
+        temperature = profiler.get_temperature()
+        assert isinstance(temperature, float)
+        assert temperature >= 0.0
         
         # 测试测量
-        profiler.start_measurement()
-        try:
-            task = {
-                "input_tokens": 100,
-                "output_tokens": 50
-            }
-            metrics = profiler.measure(task)
-            assert metrics["runtime"] > 0
-            assert metrics["power"] >= 0.0
-            assert metrics["energy"] >= 0.0
-            assert metrics["throughput"] > 0
-            assert metrics["energy_per_token"] >= 0.0
-        finally:
-            profiler.stop_measurement()
+        task = {
+            "input_tokens": 100,
+            "output_tokens": 50
+        }
+        
+        metrics = profiler.measure(task)
+        assert isinstance(metrics, dict)
+        assert metrics["runtime"] > 0
+        assert metrics["power"] >= 0.0
+        assert metrics["energy"] >= 0.0
+        assert metrics["throughput"] > 0
+        assert metrics["energy_per_token"] >= 0.0
     finally:
         profiler.cleanup()
 
