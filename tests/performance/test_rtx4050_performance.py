@@ -1,3 +1,5 @@
+"""RTX4050 性能测试模块。"""
+
 import pytest
 import time
 import psutil
@@ -5,8 +7,164 @@ import torch
 import os
 from hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from toolbox.logger import get_logger
+from typing import Dict, Any
 
 logger = get_logger(__name__)
+
+# 测试配置
+HARDWARE_CONFIG = {
+    "nvidia_rtx4050": {
+        "device_type": "rtx4050",
+        "idle_power": 15.0,
+        "sample_interval": 200
+    }
+}
+
+@pytest.fixture
+def profiler():
+    """创建 RTX4050Profiler 实例的 fixture。"""
+    return RTX4050Profiler(HARDWARE_CONFIG)
+
+def test_initialization(profiler):
+    """测试初始化。"""
+    assert profiler is not None
+    assert profiler.hardware_config == HARDWARE_CONFIG
+    assert profiler.device_type == "rtx4050"
+    assert profiler.idle_power == 15.0
+    assert profiler.sample_interval == 200
+
+def test_power_measurement_accuracy(profiler):
+    """测试功耗测量准确性。"""
+    # 测试多次测量
+    measurements = []
+    for _ in range(5):
+        power = profiler.measure_power()
+        assert isinstance(power, float)
+        assert power >= 15.0  # 不应低于空闲功耗
+        measurements.append(power)
+    
+    # 验证测量值的一致性
+    assert len(set(measurements)) > 0  # 至少有一个不同的值
+    assert max(measurements) - min(measurements) < 50.0  # 波动应在合理范围内
+
+def test_sample_interval_impact():
+    """测试采样间隔的影响。"""
+    # 测试不同的采样间隔
+    intervals = [100, 200, 500]
+    for interval in intervals:
+        config = HARDWARE_CONFIG.copy()
+        config["nvidia_rtx4050"]["sample_interval"] = interval
+        profiler = RTX4050Profiler(config)
+        
+        start_time = time.time()
+        power = profiler.measure_power()
+        end_time = time.time()
+        
+        assert isinstance(power, float)
+        assert power >= 15.0
+        assert end_time - start_time >= interval / 1000.0  # 确保采样间隔生效
+
+def test_memory_usage(profiler):
+    """测试内存使用。"""
+    # 测试多次获取内存信息
+    for _ in range(3):
+        memory_info = profiler.get_memory_info()
+        assert isinstance(memory_info, dict)
+        assert "total" in memory_info
+        assert "used" in memory_info
+        assert "free" in memory_info
+        assert memory_info["total"] > 0
+        assert memory_info["used"] >= 0
+        assert memory_info["free"] >= 0
+        assert memory_info["used"] + memory_info["free"] == memory_info["total"]
+
+def test_temperature_measurement(profiler):
+    """测试温度测量。"""
+    # 测试多次测量
+    temperatures = []
+    for _ in range(5):
+        temp = profiler.get_temperature()
+        assert isinstance(temp, float)
+        assert 0 <= temp <= 100  # 温度应在合理范围内
+        temperatures.append(temp)
+    
+    # 验证测量值的一致性
+    assert len(set(temperatures)) > 0  # 至少有一个不同的值
+    assert max(temperatures) - min(temperatures) < 20.0  # 波动应在合理范围内
+
+def test_measurement_lifecycle(profiler):
+    """测试测量生命周期。"""
+    # 测试开始测量
+    profiler.start_measurement()
+    assert profiler.is_measuring
+    
+    # 测试测量过程中的功耗
+    power = profiler.measure_power()
+    assert isinstance(power, float)
+    assert power >= 15.0
+    
+    # 测试停止测量
+    profiler.stop_measurement()
+    assert not profiler.is_measuring
+
+def test_error_handling():
+    """测试错误处理。"""
+    # 测试无效配置
+    invalid_configs = [
+        {},  # 空配置
+        {"device_type": "rtx4050"},  # 缺少必要参数
+        {"idle_power": 15.0},  # 缺少必要参数
+        {"sample_interval": 200},  # 缺少必要参数
+        {"device_type": "rtx4050", "idle_power": -1.0, "sample_interval": 200},  # 无效的空闲功耗
+        {"device_type": "rtx4050", "idle_power": 15.0, "sample_interval": 0},  # 无效的采样间隔
+        {"device_type": 123, "idle_power": 15.0, "sample_interval": 200},  # 无效的设备类型
+        {"device_type": "rtx4050", "idle_power": "15.0", "sample_interval": 200},  # 无效的空闲功耗类型
+        {"device_type": "rtx4050", "idle_power": 15.0, "sample_interval": "200"}  # 无效的采样间隔类型
+    ]
+    
+    for config in invalid_configs:
+        with pytest.raises((ValueError, TypeError)):
+            RTX4050Profiler(config)
+
+def test_cleanup(profiler):
+    """测试资源清理。"""
+    profiler.cleanup()
+    
+    # 测试清理后使用
+    with pytest.raises(RuntimeError):
+        profiler.measure_power()
+    
+    with pytest.raises(RuntimeError):
+        profiler.get_memory_info()
+    
+    with pytest.raises(RuntimeError):
+        profiler.get_temperature()
+
+def test_performance_metrics(profiler):
+    """测试性能指标。"""
+    # 测试测量任务
+    task = {
+        "input_tokens": 100,
+        "output_tokens": 50
+    }
+    
+    # 开始测量
+    profiler.start_measurement()
+    
+    # 执行任务
+    metrics = profiler.measure(task)
+    
+    # 停止测量
+    profiler.stop_measurement()
+    
+    # 验证指标
+    assert isinstance(metrics, dict)
+    assert "energy" in metrics
+    assert "runtime" in metrics
+    assert "throughput" in metrics
+    assert metrics["energy"] > 0
+    assert metrics["runtime"] > 0
+    assert metrics["throughput"] > 0
 
 class TestRTX4050Performance:
     @classmethod
