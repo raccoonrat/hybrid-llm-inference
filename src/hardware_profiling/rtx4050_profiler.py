@@ -255,18 +255,21 @@ class RTX4050Profiler(HardwareProfiler):
             }
             
     def cleanup(self):
-        """清理 NVML 资源"""
-        try:
-            if nvml_lib is not None:
+        """清理资源"""
+        if self.device_handle is not None:
+            try:
                 ret = nvml_lib.nvmlShutdown()
                 if ret != 0:
                     error_str = nvml_lib.nvmlErrorString(ret)
                     logger.error(f"关闭NVML失败: {ret} ({error_str})")
                 else:
                     logger.info("NVML已关闭")
-        except Exception as e:
-            logger.error(f"关闭NVML时发生错误: {e}")
-            
+            except Exception as e:
+                logger.error(f"关闭NVML时出错: {e}")
+
     def __del__(self):
         """析构函数"""
-        self.cleanup() 
+        try:
+            self.cleanup()
+        except Exception:
+            pass  # 忽略析构过程中的任何错误 

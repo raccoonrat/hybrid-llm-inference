@@ -1,5 +1,5 @@
 # hybrid-llm-inference/src/hardware_profiling/__init__.py
-from .base_profiler import HardwareProfiler
+from .base_profiler import HardwareProfiler as BaseProfiler
 from .rtx4050_profiler import RTX4050Profiler
 from .a800_profiling import A800Profiler
 from .m1_pro_profiler import M1ProProfiler
