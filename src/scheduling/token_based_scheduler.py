@@ -1,69 +1,92 @@
 # hybrid-llm-inference/src/scheduling/token_based_scheduler.py
-from toolbox.logger import get_logger
+"""基于 token 的调度器模块。"""
+
+from typing import Dict, Any, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TokenBasedScheduler:
-    def __init__(self, thresholds, config):
+    """基于 token 的调度器。"""
+    
+    def __init__(self, thresholds: Dict[str, int], config: Dict[str, Any]):
         """
-        Initialize TokenBasedScheduler for token-based task scheduling.
-        
-        Args:
-            thresholds (dict): Scheduling thresholds {"T_in": int, "T_out": int}.
-            config (dict): Scheduler configuration with hardware mapping.
-        """
-        self.logger = get_logger(__name__)
-        if not thresholds or "T_in" not in thresholds or "T_out" not in thresholds:
-            self.logger.error("Invalid thresholds provided")
-            raise ValueError("Thresholds must include T_in and T_out")
-        if thresholds["T_in"] <= 0 or thresholds["T_out"] <= 0:
-            self.logger.error("Thresholds must be positive")
-            raise ValueError("Thresholds must be positive")
-        
-        self.input_threshold = thresholds.get("T_in", 32)
-        self.output_threshold = thresholds.get("T_out", 32)
-        self.hardware_map = config.get("hardware_map", {})
-        if not self.hardware_map:
-            self.logger.error("Hardware map is empty")
-            raise ValueError("Hardware map cannot be empty")
-        
-        self.logger.info(f"Initialized scheduler with T_in={self.input_threshold}, T_out={self.output_threshold}")
+        初始化调度器。
 
-    def schedule(self, token_data):
-        """
-        Schedule tasks based on token counts.
-        
         Args:
-            token_data (list): List of queries with token counts 
-                              [{"prompt": str, "response": str, "input_tokens": int, "output_tokens": int}, ...].
-        
-        Returns:
-            list: Allocations [{"query": dict, "hardware": str}].
+            thresholds: token 阈值，包含:
+                - T_in: 输入 token 阈值
+                - T_out: 输出 token 阈值
+            config: 调度器配置，包含:
+                - hardware_map: 硬件映射
         """
-        if not token_data:
-            self.logger.warning("No token data provided, returning empty allocations")
-            return []
+        self.thresholds = thresholds
+        self.config = config
+        self._validate_config()
         
-        allocations = []
-        for query in token_data:
-            if "input_tokens" not in query or "output_tokens" not in query:
-                self.logger.warning(f"Skipping invalid query: {query}")
-                continue
+    def _validate_config(self) -> None:
+        """验证配置。"""
+        if not isinstance(self.thresholds, dict):
+            raise ValueError("阈值必须是字典类型")
             
-            input_tokens = query.get("input_tokens", 0)
-            output_tokens = query.get("output_tokens", 0)
+        if "T_in" not in self.thresholds or "T_out" not in self.thresholds:
+            raise ValueError("阈值必须包含 T_in 和 T_out")
             
-            # Assign hardware based on thresholds
-            if input_tokens <= self.input_threshold and output_tokens <= self.output_threshold:
-                # Prefer low-power hardware for small tasks
-                hardware = self.hardware_map.get("m1_pro", "m1_pro")
-                if input_tokens <= 16 and output_tokens <= 16:
-                    hardware = self.hardware_map.get("rtx4050", hardware)  # RTX 4050 for very small tasks
-            else:
-                # Prefer high-performance hardware for large tasks
-                hardware = self.hardware_map.get("a800", self.hardware_map.get("a100", "a100"))
+        if self.thresholds["T_in"] <= 0 or self.thresholds["T_out"] <= 0:
+            raise ValueError("阈值必须为正数")
+            
+        if not isinstance(self.config, dict):
+            raise ValueError("配置必须是字典类型")
+            
+        if "hardware_map" not in self.config:
+            raise ValueError("配置必须包含 hardware_map")
+            
+    def schedule(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        调度任务。
+
+        Args:
+            tasks: 任务列表，每个任务包含:
+                - prompt: 提示文本
+                - response: 响应文本
+                - input_tokens: 输入 token 数量
+                - output_tokens: 输出 token 数量
+
+        Returns:
+            List[Dict[str, Any]]: 调度结果，每个任务包含:
+                - hardware: 分配的硬件
+                - query: 原始任务
+        """
+        results = []
+        
+        for task in tasks:
+            try:
+                # 获取 token 数量
+                input_tokens = task.get("input_tokens", 0)
+                output_tokens = task.get("output_tokens", 0)
                 
-            allocation = {"query": query, "hardware": hardware}
-            allocations.append(allocation)
-            self.logger.debug(f"Allocated query (input={input_tokens}, output={output_tokens}) to {hardware}")
-        
-        self.logger.info(f"Scheduled {len(allocations)} tasks")
-        return allocations
+                # 根据 token 数量选择硬件
+                if input_tokens <= self.thresholds["T_in"] and output_tokens <= self.thresholds["T_out"]:
+                    hardware = "nvidia_rtx4050"  # 小任务
+                elif input_tokens <= self.thresholds["T_in"] * 2 and output_tokens <= self.thresholds["T_out"] * 2:
+                    hardware = "apple_m1_pro"  # 中等任务
+                else:
+                    hardware = "nvidia_a100"  # 大任务
+                    
+                # 添加结果
+                results.append({
+                    "hardware": hardware,
+                    "query": task
+                })
+                
+            except Exception as e:
+                logger.error(f"任务调度失败: {str(e)}")
+                continue
+                
+        return results
+    
+    def cleanup(self) -> None:
+        """
+        清理资源。
+        """
+        pass

@@ -7,6 +7,9 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Tuple
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 class BaseModel(ABC):
     """基础模型类，为所有模型实现提供通用功能。
     
@@ -171,3 +174,15 @@ class BaseModel(ABC):
     def cleanup(self) -> None:
         """清理资源。子类可以重写此方法以实现自定义清理逻辑。"""
         pass
+
+    def infer(self, text: str) -> str:
+        """
+        执行推理的包装方法。
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            str: 输出文本
+        """
+        return self.inference(text)

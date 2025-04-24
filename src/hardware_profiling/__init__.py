@@ -1,4 +1,6 @@
 # hybrid-llm-inference/src/hardware_profiling/__init__.py
+"""硬件性能分析模块。"""
+
 from .base_profiler import HardwareProfiler as BaseProfiler
 from .rtx4050_profiler import RTX4050Profiler
 from .a800_profiling import A800Profiler

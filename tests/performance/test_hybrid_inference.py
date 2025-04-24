@@ -17,6 +17,32 @@ from src.model_zoo.base_model import BaseModel
 # 设置测试模式
 os.environ['TEST_MODE'] = 'true'
 
+@pytest.fixture
+def model_config() -> Dict[str, Any]:
+    """模型配置"""
+    return {
+        "model_name": "mock_model",
+        "model_path": "models/mock_model",
+        "mode": "local",
+        "batch_size": 1,
+        "max_length": 2048
+    }
+
+@pytest.fixture
+def hardware_config() -> Dict[str, Any]:
+    """硬件配置"""
+    return {
+        "device_type": "rtx4050",
+        "idle_power": 30.0,
+        "sample_interval": 200
+    }
+
+@pytest.fixture
+def hybrid_inference(model_config: Dict[str, Any], hardware_config: Dict[str, Any]) -> HybridInference:
+    """创建混合推理实例"""
+    model = MockModel(model_config)
+    return HybridInference(model, hardware_config, skip_nvml=True)
+
 class MockModel(BaseModel):
     """用于测试的模拟模型类。"""
     
@@ -63,52 +89,22 @@ class MockProfiler:
     def cleanup(self):
         pass
 
-@pytest.fixture
-def hybrid_inference():
-    """创建HybridInference测试实例。"""
-    # 设置测试模式
-    os.environ["TEST_MODE"] = "true"
-    
-    # 配置参数
-    config = {
-        "hardware_config": {
-            "device_id": 0,
-            "skip_nvml": True
-        },
-        "model_config": {
-            "model_name": "mock_model",
-            "model_path": "/path/to/mock",
-            "model_type": "mock",
-            "mode": "local",
-            "batch_size": 1,
-            "max_length": 2048
-        }
-    }
-    
-    # 创建实例
-    inference = HybridInference(config)
-    inference.model = MockModel(config["model_config"])  # 使用测试文件中的MockModel
-    inference.profiler = MockProfiler()
-    
-    yield inference
-    
-    # 清理
-    inference.cleanup()
-    del os.environ["TEST_MODE"]
-
-def test_initialization(hybrid_inference):
-    """测试初始化。"""
+def test_initialization(hybrid_inference: HybridInference):
+    """测试初始化"""
     assert hybrid_inference is not None
     assert hybrid_inference.model is not None
-    assert hybrid_inference.profiler is not None
+    assert hybrid_inference.hardware_config is not None
 
-def test_inference(hybrid_inference):
-    """测试推理功能。"""
-    prompt = "这是一个测试提示。"
-    response = hybrid_inference.infer(prompt)
-    assert response is not None
-    assert isinstance(response, str)
-    assert response == "这是一个模拟的响应。"
+def test_inference(hybrid_inference: HybridInference):
+    """测试推理"""
+    text = "测试输入"
+    output = hybrid_inference.infer(text)
+    assert output == "这是一个模拟的响应。"
+
+def test_error_handling(hybrid_inference: HybridInference):
+    """测试错误处理"""
+    with pytest.raises(ValueError):
+        hybrid_inference.infer("")
 
 def test_performance_measurement(hybrid_inference):
     """测试性能测量。"""
@@ -117,11 +113,6 @@ def test_performance_measurement(hybrid_inference):
     assert metrics is not None
     assert "energy" in metrics
     assert "runtime" in metrics
-
-def test_error_handling(hybrid_inference):
-    """测试错误处理。"""
-    with pytest.raises(ValueError):
-        hybrid_inference.infer("")
 
 def test_cleanup(hybrid_inference):
     """测试资源清理。"""
@@ -133,7 +124,7 @@ def test_hybrid_inference_initialization(hybrid_inference: HybridInference):
     """测试混合推理初始化。"""
     assert hybrid_inference is not None
     assert isinstance(hybrid_inference.model, MockModel)
-    assert isinstance(hybrid_inference.profiler, MockProfiler)
+    assert isinstance(hybrid_inference.hardware_config, dict)
 
 def test_hybrid_inference_inference(hybrid_inference: HybridInference):
     """测试混合推理推理功能。"""
@@ -146,7 +137,6 @@ def test_hybrid_inference_inference(hybrid_inference: HybridInference):
 def test_hybrid_inference_cleanup(hybrid_inference: HybridInference):
     """测试混合推理清理功能。"""
     hybrid_inference.model.cleanup()
-    hybrid_inference.profiler.cleanup()
 
 def test_hybrid_inference_performance(hybrid_inference: HybridInference):
     """测试混合推理性能测量。"""

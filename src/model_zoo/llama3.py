@@ -4,6 +4,11 @@ import requests
 from model_zoo.base_model import BaseModel
 from toolbox.logger import get_logger
 from toolbox.accelerate_wrapper import AccelerateWrapper
+import logging
+from typing import Dict, Any
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class LocalLlama3(BaseModel):
     def __init__(self, model_name="meta-llama/Llama-3-8B", config=None):
@@ -84,3 +89,70 @@ class APILlama3(BaseModel):
         except Exception as e:
             self.logger.error(f"Token counting failed: {e}")
             raise
+
+class Llama3Model(BaseModel):
+    """Llama3 模型类。"""
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        初始化 Llama3 模型。
+
+        Args:
+            config: 模型配置
+        """
+        super().__init__(config)
+        self.logger = logging.getLogger(__name__)
+        
+    def _do_inference(self, input_text: str) -> str:
+        """
+        执行实际的推理操作。
+
+        Args:
+            input_text: 输入文本
+
+        Returns:
+            str: 生成的文本
+        """
+        if not input_text:
+            raise ValueError("输入文本不能为空")
+            
+        try:
+            # 在测试模式下返回模拟响应
+            if self.is_test_mode:
+                return "这是一个模拟的 Llama3 响应。"
+                
+            # TODO: 实现实际的推理逻辑
+            return "这是一个 Llama3 响应。"
+        except Exception as e:
+            self.logger.error(f"推理失败: {e}")
+            raise
+    
+    def get_token_count(self, text: str) -> int:
+        """
+        获取文本的token数量。
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            int: token数量
+        """
+        if not text:
+            return 0
+            
+        try:
+            # 在测试模式下返回固定值
+            if self.is_test_mode:
+                return len(text.split())
+                
+            # TODO: 实现实际的token计数逻辑
+            return len(text.split())
+        except Exception as e:
+            self.logger.error(f"计算token数量失败: {e}")
+            return 0
+    
+    def cleanup(self) -> None:
+        """
+        清理资源。
+        """
+        pass

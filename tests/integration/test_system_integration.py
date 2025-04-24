@@ -209,11 +209,12 @@ def test_system_integration(config_dir, mock_data):
             "max_length": 100
         })
         
-        scheduler = TaskScheduler({
+        scheduler_config = {
             "max_batch_size": 4,
             "max_wait_time": 1.0,
             "scheduling_strategy": "token_based"
-        })
+        }
+        scheduler = TaskScheduler(scheduler_config)
         
         hybrid_inference = HybridInference(model, scheduler)
         

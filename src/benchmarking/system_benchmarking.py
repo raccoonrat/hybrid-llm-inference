@@ -7,33 +7,61 @@ from scheduling.token_based_scheduler import TokenBasedScheduler
 from scheduling.task_allocator import TaskAllocator
 from dataset_manager.alpaca_loader import AlpacaLoader
 from model_zoo import get_model
+import logging
+from typing import Dict, Any, List
+from model_zoo.base_model import BaseModel
+from hardware_profiling import get_profiler
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class SystemBenchmarking:
-    def __init__(self, dataset_path, hardware_config, model_config, scheduler_config, output_dir="data/benchmarks"):
+    """系统基准测试类。"""
+    
+    def __init__(
+        self,
+        dataset_path: Path,
+        hardware_config: Dict[str, Any],
+        model_config: Dict[str, Any],
+        scheduler_config: Dict[str, Any] = None,
+        output_dir: Path = Path("data/benchmarks")
+    ):
         """
-        Initialize SystemBenchmarking for evaluating system performance.
-        
+        初始化系统基准测试。
+
         Args:
-            dataset_path (str): Path to Alpaca dataset.
-            hardware_config (dict): Hardware configuration.
-            model_config (dict): Model configuration.
-            scheduler_config (dict): Scheduler configuration.
-            output_dir (str): Directory to save benchmark results.
+            dataset_path: 数据集路径
+            hardware_config: 硬件配置
+            model_config: 模型配置
+            scheduler_config: 调度器配置（可选）
+            output_dir: 输出目录（可选）
         """
         self.logger = get_logger(__name__)
-        self.dataset_path = Path(dataset_path)
+        self.dataset_path = dataset_path
         if not self.dataset_path.exists():
             self.logger.error(f"Dataset not found: {self.dataset_path}")
             raise FileNotFoundError(f"Dataset not found: {self.dataset_path}")
         
         self.hardware_config = hardware_config
         self.model_config = model_config
-        self.scheduler_config = scheduler_config
-        self.output_dir = Path(output_dir)
+        self.scheduler_config = scheduler_config or {
+            "max_batch_size": 4,
+            "max_wait_time": 1.0,
+            "scheduling_strategy": "token_based"
+        }
+        self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.loader = AlpacaLoader(dataset_path)
         self.allocator = TaskAllocator(hardware_config, model_config)
         self.logger.info("SystemBenchmarking initialized")
+
+        self.scheduler = TokenBasedScheduler(self.scheduler_config)
+        self.models = {
+            name: get_model(name, cfg.get("mode", "local"), cfg)
+            for name, cfg in self.model_config["models"].items()
+        }
+
+        self.profiler = get_profiler(config=hardware_config, skip_nvml=True)
 
     def run_benchmarks(self, thresholds, model_name="llama3", sample_size=1000):
         """
@@ -67,8 +95,7 @@ class SystemBenchmarking:
         if len(data) > sample_size:
             data = data.sample(n=sample_size, random_state=42)
         
-        model = get_model(model_name, self.model_config["models"][model_name].get("mode", "local"), 
-                         self.model_config["models"][model_name])
+        model = self.models[model_name]
         
         # Prepare token data
         token_data = []
@@ -136,6 +163,126 @@ class SystemBenchmarking:
             "avg_energy_per_token": metrics_df["energy_per_token"].mean() if not metrics_df.empty else 0.0,
             "total_tasks": len(metrics_df)
         }
+
+    def benchmark(self, tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        对任务进行基准测试。
+
+        Args:
+            tasks: 要测试的任务列表
+
+        Returns:
+            Dict[str, Any]: 基准测试结果
+        """
+        if not tasks:
+            logger.warning("没有任务需要测试")
+            return {
+                "energy": 0.0,
+                "runtime": 0.0,
+                "throughput": 0.0,
+                "energy_per_token": 0.0
+            }
+
+        total_energy = 0.0
+        total_runtime = 0.0
+        total_tokens = 0
+
+        for task in tasks:
+            try:
+                # 获取任务指标
+                metrics = self._measure_task(task)
+                total_energy += metrics.get("energy", 0.0)
+                total_runtime += metrics.get("runtime", 0.0)
+                total_tokens += metrics.get("tokens", 0)
+            except Exception as e:
+                logger.error(f"任务测试失败: {e}")
+                continue
+
+        if total_tokens == 0:
+            return {
+                "energy": total_energy,
+                "runtime": total_runtime,
+                "throughput": 0.0,
+                "energy_per_token": 0.0
+            }
+
+        return {
+            "energy": total_energy,
+            "runtime": total_runtime,
+            "throughput": total_tokens / total_runtime if total_runtime > 0 else 0.0,
+            "energy_per_token": total_energy / total_tokens
+        }
+
+    def _measure_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        测量单个任务的性能指标。
+
+        Args:
+            task: 要测量的任务
+
+        Returns:
+            Dict[str, Any]: 任务性能指标
+        """
+        hardware = task.get("hardware")
+        model_name = task.get("model")
+        
+        if not hardware or hardware not in self.hardware_config:
+            logger.error(f"无效的硬件配置: {hardware}")
+            return {
+                "energy": 0.0,
+                "runtime": 0.0,
+                "tokens": 0
+            }
+            
+        if not model_name or model_name not in self.models:
+            logger.error(f"无效的模型名称: {model_name}")
+            return {
+                "energy": 0.0,
+                "runtime": 0.0,
+                "tokens": 0
+            }
+
+        model = self.models[model_name]
+        try:
+            # 执行推理
+            start_time = pd.Timestamp.now()
+            result = model.infer(task.get("query", ""))
+            end_time = pd.Timestamp.now()
+            
+            # 计算指标
+            runtime = (end_time - start_time).total_seconds()
+            input_tokens = model.get_token_count(task.get("query", ""))
+            output_tokens = model.get_token_count(result)
+            total_tokens = input_tokens + output_tokens
+            
+            # 获取硬件指标
+            profiler = get_profiler(hardware, self.hardware_config[hardware])
+            power = profiler.measure_power()
+            energy = power * runtime
+            
+            return {
+                "energy": energy,
+                "runtime": runtime,
+                "tokens": total_tokens
+            }
+        except Exception as e:
+            logger.error(f"任务测量失败: {e}")
+            return {
+                "energy": 0.0,
+                "runtime": 0.0,
+                "tokens": 0
+            }
+    
+    def cleanup(self) -> None:
+        """
+        清理资源。
+        """
+        for model in self.models.values():
+            model.cleanup()
+        if hasattr(self, "allocator"):
+            self.allocator.cleanup()
+        if hasattr(self, "profiler"):
+            self.profiler.cleanup()
 
 # hybrid-llm-inference/src/benchmarking/model_benchmarking.py
 import pandas as pd

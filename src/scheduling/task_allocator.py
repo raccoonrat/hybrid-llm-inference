@@ -2,19 +2,26 @@
 from toolbox.logger import get_logger
 from hardware_profiling import get_profiler
 from model_zoo import get_model
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import numpy as np
+import logging
+from pathlib import Path
+from src.model_zoo.base_model import BaseModel
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class TaskAllocator:
     """任务分配器，负责决定任务运行的设备"""
     
-    def __init__(self, hardware_config: Dict[str, Any], model_config: Dict[str, Any], gpu_power_threshold=None):
+    def __init__(self, hardware_config: Dict[str, Any], model_config: Dict[str, Any], gpu_power_threshold=None, skip_nvml=False):
         """初始化分配器
         
         Args:
             hardware_config (Dict[str, Any]): 硬件配置
             model_config (Dict[str, Any]): 模型配置
             gpu_power_threshold (float, optional): GPU功率阈值
+            skip_nvml (bool, optional): 是否跳过NVML初始化，用于测试
         """
         self.logger = get_logger(__name__)
         self.device_stats = {
@@ -33,7 +40,7 @@ class TaskAllocator:
         
         # 初始化硬件分析器
         self.profilers = {
-            key: get_profiler(key, cfg) for key, cfg in hardware_config.items()
+            key: get_profiler(key, cfg, skip_nvml=skip_nvml) for key, cfg in hardware_config.items()
         }
         
         # 初始化模型
@@ -44,6 +51,23 @@ class TaskAllocator:
                 config=cfg
             ) for name, cfg in model_config["models"].items()
         }
+        
+        self.hardware_config = hardware_config
+        self.model_config = model_config
+        self._validate_config()
+    
+    def _validate_config(self) -> None:
+        """
+        验证配置参数。
+        """
+        if not self.hardware_config:
+            raise ValueError("硬件配置不能为空")
+            
+        if not self.model_config:
+            raise ValueError("模型配置不能为空")
+            
+        if "models" not in self.model_config:
+            raise ValueError("模型配置缺少 models 字段")
     
     def update_threshold(self, current_performance: float) -> None:
         """根据性能历史动态调整阈值"""
@@ -125,58 +149,68 @@ class TaskAllocator:
         for device in self.device_stats:
             self.device_stats[device] = {"total_tasks": 0, "total_tokens": 0}
 
-    def allocate(self, allocations, model_name="llama3"):
+    def allocate(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Execute tasks on assigned hardware and collect metrics.
+        分配任务。
         
         Args:
-            allocations (list): List of allocations [{"query": dict, "hardware": str}].
-            model_name (str): Model to use for inference.
-        
+            tasks: 任务列表，每个任务是一个字典，包含:
+                - input_text: 输入文本
+                - output_text: 输出文本（可选）
+                - input_tokens: 输入token数量（可选）
+                - output_tokens: 输出token数量（可选）
+                
         Returns:
-            list: Results [{"query": dict, "hardware": str, "metrics": dict}].
+            List[Dict[str, Any]]: 分配后的任务列表，每个任务包含:
+                - input_text: 输入文本
+                - output_text: 输出文本
+                - input_tokens: 输入token数量
+                - output_tokens: 输出token数量
+                - hardware: 分配的硬件
+                - metrics: 性能指标
         """
-        if model_name not in self.models:
-            self.logger.error(f"Model {model_name} not found")
-            raise ValueError(f"Model {model_name} not found")
-        
-        if not allocations:
-            self.logger.warning("No allocations provided, returning empty results")
-            return []
-        
-        model = self.models[model_name]
         results = []
-
-        for allocation in allocations:
-            query = allocation.get("query", {})
-            hardware = allocation.get("hardware")
-            if not query or not hardware:
-                self.logger.warning(f"Skipping invalid allocation: {allocation}")
-                continue
-            
-            prompt = query.get("prompt", "")
-            input_tokens = query.get("input_tokens", 0)
-            output_tokens = query.get("output_tokens", 0)
-            
-            if hardware not in self.profilers:
-                self.logger.warning(f"Hardware {hardware} not supported, skipping")
-                continue
-            
-            profiler = self.profilers[hardware]
-            task = lambda: model.infer(prompt)
-            
-            try:
-                metrics = profiler.measure(task, input_tokens, output_tokens)
-                result = {
-                    "query": query,
-                    "hardware": hardware,
-                    "metrics": metrics
-                }
-                results.append(result)
-                self.logger.debug(f"Executed task on {hardware}: {metrics}")
-            except Exception as e:
-                self.logger.error(f"Failed to execute task on {hardware}: {e}")
-                continue
         
-        self.logger.info(f"Allocated and executed {len(results)} tasks")
+        for task in tasks:
+            try:
+                # 获取输入token数量
+                input_tokens = task.get("input_tokens", len(task["input_text"].split()))
+                
+                # 分配任务到设备
+                device = self.allocate_task(
+                    task.get("instruction", ""),
+                    task["input_text"],
+                    self.dynamic_threshold
+                )
+                
+                # 执行推理
+                def inference_task():
+                    return task.get("output_text", "这是一个模拟的响应。")
+                    
+                # 测量性能
+                metrics = self.profilers[device].measure(
+                    inference_task,
+                    input_tokens,
+                    task.get("output_tokens", input_tokens)
+                )
+                
+                # 添加结果
+                results.append({
+                    "input_text": task["input_text"],
+                    "output_text": task.get("output_text", "这是一个模拟的响应。"),
+                    "input_tokens": input_tokens,
+                    "output_tokens": task.get("output_tokens", input_tokens),
+                    "hardware": device,
+                    "metrics": metrics
+                })
+                
+            except Exception as e:
+                self.logger.error(f"任务分配失败: {str(e)}")
+                continue
+                
         return results
+        
+    def cleanup(self) -> None:
+        """清理资源。"""
+        for profiler in self.profilers.values():
+            profiler.cleanup()

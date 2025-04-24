@@ -1,16 +1,21 @@
-# hybrid-llm-inference/tests/benchmarks/test_benchmarking.py
+"""基准测试模块。"""
+
 import os
 import pytest
-import pandas as pd
-import numpy as np
 from pathlib import Path
-from benchmarking.system_benchmarking import SystemBenchmarking
-from benchmarking.model_benchmarking import ModelBenchmarking
-from benchmarking.report_generator import ReportGenerator
-import json
+import sys
+from typing import Dict, Any, List
+
+# 添加项目根目录到 Python 路径
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
+from src.benchmarking.system_benchmarking import SystemBenchmarking
+from src.benchmarking.model_benchmarking import ModelBenchmarking
+from src.model_zoo.base_model import BaseModel
 
 # 设置测试模式
-os.environ["TEST_MODE"] = "true"
+os.environ['TEST_MODE'] = 'true'
 
 @pytest.fixture
 def mock_dataset(tmp_path):
@@ -24,28 +29,23 @@ def mock_dataset(tmp_path):
     return dataset_path
 
 @pytest.fixture
-def hardware_config():
+def hardware_config() -> Dict[str, Any]:
     """硬件配置"""
     return {
-        "m1_pro": {"type": "cpu_gpu", "idle_power": 10.0},
-        "a100": {"type": "gpu", "device_id": 0},
-        "rtx4050": {
-            "type": "gpu",
-            "device_id": 0,
-            "idle_power": 15.0,
-            "sample_interval": 200
-        }
+        "device_type": "rtx4050",
+        "idle_power": 30.0,
+        "sample_interval": 200
     }
 
 @pytest.fixture
-def model_config():
+def model_config() -> Dict[str, Any]:
     """模型配置"""
     return {
-        "model_name": "tinyllama",
-        "model_path": "models/TinyLlama-1.1B-Chat-v1.0",
+        "model_name": "mock_model",
+        "model_path": "models/mock_model",
         "mode": "local",
         "batch_size": 1,
-        "max_length": 128
+        "max_length": 2048
     }
 
 @pytest.fixture
@@ -62,6 +62,56 @@ def scheduler_config():
 def output_dir(tmp_path):
     """创建输出目录"""
     return tmp_path / "output"
+
+@pytest.fixture
+def system_benchmarking(hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> SystemBenchmarking:
+    """创建系统基准测试实例"""
+    return SystemBenchmarking(hardware_config, model_config)
+
+@pytest.fixture
+def model_benchmarking(hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> ModelBenchmarking:
+    """创建模型基准测试实例"""
+    return ModelBenchmarking(hardware_config, model_config)
+
+def test_system_benchmarking_initialization(system_benchmarking: SystemBenchmarking):
+    """测试系统基准测试初始化"""
+    assert system_benchmarking is not None
+    assert system_benchmarking.hardware_config is not None
+    assert system_benchmarking.model_config is not None
+
+def test_system_benchmarking_run_benchmark(system_benchmarking: SystemBenchmarking):
+    """测试系统基准测试运行"""
+    tasks = ["测试任务1", "测试任务2"]
+    result = system_benchmarking.run_benchmark(tasks)
+    assert result is not None
+    assert "tasks" in result
+    assert "hardware_config" in result
+    assert "model_config" in result
+
+def test_system_benchmarking_cleanup(system_benchmarking: SystemBenchmarking):
+    """测试系统基准测试清理"""
+    system_benchmarking.cleanup()
+    assert True  # 如果清理成功，不会抛出异常
+
+def test_model_benchmarking_initialization(model_benchmarking: ModelBenchmarking):
+    """测试模型基准测试初始化"""
+    assert model_benchmarking is not None
+    assert model_benchmarking.hardware_config is not None
+    assert model_benchmarking.model_config is not None
+
+def test_model_benchmarking_run_benchmark(model_benchmarking: ModelBenchmarking):
+    """测试模型基准测试运行"""
+    tasks = ["测试任务1", "测试任务2"]
+    result = model_benchmarking.run_benchmark(tasks)
+    assert result is not None
+    assert "tasks" in result
+    assert "hardware_config" in result
+    assert "model_config" in result
+
+def test_model_benchmarking_cleanup(model_benchmarking: ModelBenchmarking):
+    """测试模型基准测试清理"""
+    model_benchmarking.cleanup()
+    assert True  # 如果清理成功，不会抛出异常
 
 def test_system_benchmarking_small_dataset(mock_dataset, hardware_config, model_config, output_dir):
     """测试小数据集系统基准测试"""
@@ -98,11 +148,11 @@ def test_model_benchmarking_small_dataset(mock_dataset, hardware_config, model_c
     results = benchmarker.run_benchmarks()
     
     assert isinstance(results, dict)
-    assert "tinyllama" in results
-    assert "energy" in results["tinyllama"]
-    assert "runtime" in results["tinyllama"]
-    assert "total_tasks" in results["tinyllama"]
-    assert results["tinyllama"]["total_tasks"] > 0
+    assert "mock_model" in results
+    assert "energy" in results["mock_model"]
+    assert "runtime" in results["mock_model"]
+    assert "total_tasks" in results["mock_model"]
+    assert results["mock_model"]["total_tasks"] > 0
 
 def test_system_benchmarking_large_sample_size(mock_dataset, hardware_config, model_config, output_dir):
     """测试大样本量系统基准测试"""
@@ -138,7 +188,7 @@ def test_system_benchmarking_empty_dataset(tmp_path, hardware_config, model_conf
     thresholds = {"T_in": 32, "T_out": 32}
     
     with pytest.raises(ValueError, match="Dataset is empty"):
-        benchmarker.run_benchmarks(thresholds, model_name="tinyllama", sample_size=3)
+        benchmarker.run_benchmarks(thresholds, model_name="mock_model", sample_size=3)
 
 def test_system_benchmarking_invalid_thresholds(mock_dataset, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
     """Test system benchmarking with invalid thresholds."""
@@ -153,7 +203,7 @@ def test_system_benchmarking_invalid_thresholds(mock_dataset, hardware_config, m
     thresholds = {"T_in": -1, "T_out": 32}
     
     with pytest.raises(ValueError, match="Thresholds must be positive"):
-        benchmarker.run_benchmarks(thresholds, model_name="tinyllama", sample_size=3)
+        benchmarker.run_benchmarks(thresholds, model_name="mock_model", sample_size=3)
 
 def test_report_generator_valid_output(mock_dataset, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
     """Test report generation with valid benchmark results."""

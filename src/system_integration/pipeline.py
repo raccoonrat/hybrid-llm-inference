@@ -26,8 +26,8 @@ class SystemPipeline:
         data_path: Path,
         distribution_path: Path,
         output_dir: Path,
-        model_name: str,
-        model_path: str,
+        model_name: Optional[str] = None,
+        model_path: Optional[str] = None,
         mode: str = "local"
     ):
         """
@@ -37,8 +37,8 @@ class SystemPipeline:
             data_path: 数据文件路径
             distribution_path: 分布文件路径
             output_dir: 输出目录
-            model_name: 模型名称
-            model_path: 模型路径
+            model_name: 模型名称（可选）
+            model_path: 模型路径（可选）
             mode: 运行模式（local/remote）
         """
         self.data_path = data_path
@@ -54,9 +54,40 @@ class SystemPipeline:
         # 初始化组件
         self.config_manager = ConfigManager()
         self.token_processor = TokenProcessing()
-        self.scheduler = TokenBasedScheduler()
-        self.allocator = TaskAllocator()
-        self.benchmarking = SystemBenchmarking()
+        self.scheduler = TokenBasedScheduler({
+            "max_batch_size": 4,
+            "max_wait_time": 1.0,
+            "scheduling_strategy": "token_based"
+        })
+        self.allocator = TaskAllocator(
+            hardware_config={
+                "m1_pro": {"type": "cpu_gpu", "idle_power": 10.0},
+                "a100": {"type": "gpu", "device_id": 0}
+            },
+            model_config={
+                "models": {
+                    "llama3": {"model_name": "meta-llama/Llama-3-8B", "mode": "local", "max_length": 512}
+                }
+            }
+        )
+        self.benchmarking = SystemBenchmarking(
+            dataset_path=self.data_path,
+            hardware_config={
+                "m1_pro": {"type": "cpu_gpu", "idle_power": 10.0},
+                "a100": {"type": "gpu", "device_id": 0}
+            },
+            model_config={
+                "models": {
+                    "llama3": {"model_name": "meta-llama/Llama-3-8B", "mode": "local", "max_length": 512}
+                }
+            },
+            scheduler_config={
+                "max_batch_size": 4,
+                "max_wait_time": 1.0,
+                "scheduling_strategy": "token_based"
+            },
+            output_dir=self.output_dir
+        )
         self.report_generator = ReportGenerator()
         
     def run(self) -> Dict[str, Any]:
@@ -86,7 +117,7 @@ class SystemPipeline:
             scheduled_tasks = self.scheduler.schedule(processed_data, tradeoffs)
             
             # 分配任务
-            allocated_tasks = self.allocator.allocate(scheduled_tasks)
+            allocated_tasks = self.allocator.allocate(scheduled_tasks, self.model_name or "llama3")
             
             # 基准测试
             metrics = self.benchmarking.benchmark(allocated_tasks)
