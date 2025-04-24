@@ -1,6 +1,7 @@
 # hybrid-llm-inference/tests/integration/test_system_integration.py
 # This test file is temporarily commented out because the system_integration module has not been implemented
-"""
+"""系统集成测试模块。"""
+
 import pytest
 import pandas as pd
 import yaml
@@ -18,6 +19,9 @@ from src.benchmarking.system_benchmarking import SystemBenchmarking
 from src.benchmarking.report_generator import ReportGenerator
 from src.toolbox.config_manager import ConfigManager
 from src.system_integration.pipeline import SystemPipeline
+from src.hybrid_inference import HybridInference
+from src.scheduling.task_scheduler import TaskScheduler
+from src.model_zoo.mistral import LocalMistral
 
 @pytest.fixture
 def tmp_dir(tmp_path):
@@ -65,7 +69,14 @@ def mock_configs(tmp_dir):
 
 @pytest.fixture
 def mock_data(tmp_path):
-    """Create mock data"""
+    """创建测试数据。
+    
+    Args:
+        tmp_path: pytest提供的临时目录
+        
+    Returns:
+        Path: 测试数据文件路径
+    """
     data = [
         {"prompt": "test1", "response": "response1"},
         {"prompt": "test2", "response": "response2"}
@@ -137,4 +148,79 @@ def test_full_system_pipeline(mock_dataset, mock_configs, mock_distribution, tmp
     assert "metrics" in results
     assert "config" in results
     assert "distribution" in results
-"""
+
+@pytest.fixture
+def config_dir(tmp_path):
+    """创建测试配置目录。
+    
+    Args:
+        tmp_path: pytest提供的临时目录
+        
+    Returns:
+        Path: 配置目录路径
+    """
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    
+    # 创建配置文件
+    model_config = {
+        "model_name": "mistralai/Mistral-7B-v0.1",
+        "model_path": "models/mistral",
+        "mode": "local",
+        "batch_size": 1,
+        "max_length": 100
+    }
+    
+    scheduler_config = {
+        "max_batch_size": 4,
+        "max_wait_time": 1.0,
+        "scheduling_strategy": "token_based"
+    }
+    
+    # 保存配置文件
+    with open(config_dir / "model_config.yaml", "w") as f:
+        yaml.dump(model_config, f)
+    with open(config_dir / "scheduler_config.yaml", "w") as f:
+        yaml.dump(scheduler_config, f)
+    
+    return config_dir
+
+def test_system_integration(config_dir, mock_data):
+    """测试系统集成功能。"""
+    # 设置测试模式
+    os.environ["TEST_MODE"] = "true"
+    
+    try:
+        # 初始化组件
+        model = LocalMistral({
+            "model_name": "mistralai/Mistral-7B-v0.1",
+            "model_path": "models/mistral",
+            "mode": "local",
+            "batch_size": 1,
+            "max_length": 100
+        })
+        
+        scheduler = TaskScheduler({
+            "max_batch_size": 4,
+            "max_wait_time": 1.0,
+            "scheduling_strategy": "token_based"
+        })
+        
+        hybrid_inference = HybridInference(model, scheduler)
+        
+        # 加载测试数据
+        with open(mock_data) as f:
+            test_data = json.load(f)
+        
+        # 执行推理
+        for item in test_data:
+            result = hybrid_inference.infer(item["prompt"])
+            assert isinstance(result, str)
+            assert len(result) > 0
+            
+    finally:
+        # 清理资源
+        if "TEST_MODE" in os.environ:
+            del os.environ["TEST_MODE"]
+        model.cleanup()
+        scheduler.cleanup()
