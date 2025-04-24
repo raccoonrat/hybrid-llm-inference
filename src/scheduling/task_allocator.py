@@ -1,34 +1,52 @@
 # hybrid-llm-inference/src/scheduling/task_allocator.py
 from toolbox.logger import get_logger
-from hardware_profiling import get_profiler
+from src.hardware_profiling import get_profiler
 from model_zoo import get_model
 from typing import Dict, Any, List, Optional
 import numpy as np
 import logging
 from pathlib import Path
 from src.model_zoo.base_model import BaseModel
+import os
+from src.scheduling.token_based_scheduler import TokenBasedScheduler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class TaskAllocator:
-    """任务分配器，负责决定任务运行的设备"""
+    """任务分配器类。"""
     
-    def __init__(self, hardware_config: Dict[str, Any], model_config: Dict[str, Any], gpu_power_threshold=None, skip_nvml=False):
-        """初始化分配器
-        
+    def __init__(self, config: Dict[str, Any]):
+        """初始化任务分配器。
+
         Args:
-            hardware_config (Dict[str, Any]): 硬件配置
-            model_config (Dict[str, Any]): 模型配置
-            gpu_power_threshold (float, optional): GPU功率阈值
-            skip_nvml (bool, optional): 是否跳过NVML初始化，用于测试
+            config: 配置字典，必须包含：
+                - thresholds: 阈值配置，包含 T_in 和 T_out
+                - hardware_map: 硬件映射，包含 small、medium 和 large 的硬件类型
+                - hardware_config: 硬件配置，包含每个硬件类型的配置
         """
-        self.logger = get_logger(__name__)
+        self.config = config
+        self._validate_config()
+        
+        # 初始化调度器
+        self.scheduler = TokenBasedScheduler({
+            "thresholds": self.config["thresholds"],
+            "hardware_map": self.config["hardware_map"]
+        })
+        
+        # 初始化性能分析器
+        self.profilers = {}
+        for hw_type, hw_config in self.config["hardware_config"].items():
+            try:
+                self.profilers[hw_type] = get_profiler(hw_type, hw_config)
+            except Exception as e:
+                logger.warning(f"初始化 {hw_type} 性能分析器失败: {e}")
+        
         self.device_stats = {
             "gpu": {"total_tasks": 0, "total_tokens": 0},
             "cpu": {"total_tasks": 0, "total_tokens": 0}
         }
-        self.gpu_power_threshold = gpu_power_threshold
+        self.gpu_power_threshold = None
         self.last_device = None
         self.switch_penalty = 0.2  # 任务切换惩罚系数
         self.dynamic_threshold = 128  # 初始阈值
@@ -38,36 +56,52 @@ class TaskAllocator:
         self.max_threshold = 512  # 最大阈值
         self.adjustment_step = 16  # 阈值调整步长
         
-        # 初始化硬件分析器
-        self.profilers = {
-            key: get_profiler(key, cfg, skip_nvml=skip_nvml) for key, cfg in hardware_config.items()
-        }
-        
         # 初始化模型
         self.models = {
             name: get_model(
                 model_name=name,
                 mode=cfg.get("mode", "local"),
                 config=cfg
-            ) for name, cfg in model_config["models"].items()
+            ) for name, cfg in config["models"].items()
         }
-        
-        self.hardware_config = hardware_config
-        self.model_config = model_config
-        self._validate_config()
     
     def _validate_config(self) -> None:
-        """
-        验证配置参数。
-        """
-        if not self.hardware_config:
-            raise ValueError("硬件配置不能为空")
+        """验证配置。"""
+        if not self.config:
+            raise ValueError("配置不能为空")
             
-        if not self.model_config:
-            raise ValueError("模型配置不能为空")
+        # 验证阈值配置
+        if "thresholds" not in self.config:
+            raise ValueError("配置缺少 thresholds")
             
-        if "models" not in self.model_config:
-            raise ValueError("模型配置缺少 models 字段")
+        thresholds = self.config["thresholds"]
+        if "T_in" not in thresholds or "T_out" not in thresholds:
+            raise ValueError("thresholds 必须包含 T_in 和 T_out")
+            
+        if not isinstance(thresholds["T_in"], int) or thresholds["T_in"] <= 0:
+            raise ValueError("T_in 必须是正整数")
+            
+        if not isinstance(thresholds["T_out"], int) or thresholds["T_out"] <= 0:
+            raise ValueError("T_out 必须是正整数")
+            
+        # 验证硬件映射
+        if "hardware_map" not in self.config:
+            raise ValueError("配置缺少 hardware_map")
+            
+        hardware_map = self.config["hardware_map"]
+        required_hardware = ["small", "medium", "large"]
+        for hw in required_hardware:
+            if hw not in hardware_map:
+                raise ValueError(f"hardware_map 缺少 {hw} 硬件类型")
+                
+        # 验证硬件配置
+        if "hardware_config" not in self.config:
+            raise ValueError("配置缺少 hardware_config")
+            
+        hardware_config = self.config["hardware_config"]
+        for hw_type in hardware_map.values():
+            if hw_type not in hardware_config:
+                raise ValueError(f"hardware_config 缺少 {hw_type} 的配置")
     
     def update_threshold(self, current_performance: float) -> None:
         """根据性能历史动态调整阈值"""
@@ -150,67 +184,40 @@ class TaskAllocator:
             self.device_stats[device] = {"total_tasks": 0, "total_tokens": 0}
 
     def allocate(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        分配任务。
-        
+        """分配任务。
+
         Args:
-            tasks: 任务列表，每个任务是一个字典，包含:
-                - input_text: 输入文本
-                - output_text: 输出文本（可选）
-                - input_tokens: 输入token数量（可选）
-                - output_tokens: 输出token数量（可选）
-                
+            tasks: 任务列表，每个任务必须包含 input_tokens 和 output_tokens
+
         Returns:
-            List[Dict[str, Any]]: 分配后的任务列表，每个任务包含:
-                - input_text: 输入文本
-                - output_text: 输出文本
-                - input_tokens: 输入token数量
-                - output_tokens: 输出token数量
-                - hardware: 分配的硬件
-                - metrics: 性能指标
+            分配结果列表，每个结果包含：
+                - hardware: 分配的硬件类型
+                - input_tokens: 输入 token 数
+                - output_tokens: 输出 token 数
+                - task: 原始任务
+                - profiler: 对应的性能分析器
         """
-        results = []
-        
-        for task in tasks:
-            try:
-                # 获取输入token数量
-                input_tokens = task.get("input_tokens", len(task["input_text"].split()))
-                
-                # 分配任务到设备
-                device = self.allocate_task(
-                    task.get("instruction", ""),
-                    task["input_text"],
-                    self.dynamic_threshold
-                )
-                
-                # 执行推理
-                def inference_task():
-                    return task.get("output_text", "这是一个模拟的响应。")
-                    
-                # 测量性能
-                metrics = self.profilers[device].measure(
-                    inference_task,
-                    input_tokens,
-                    task.get("output_tokens", input_tokens)
-                )
-                
-                # 添加结果
-                results.append({
-                    "input_text": task["input_text"],
-                    "output_text": task.get("output_text", "这是一个模拟的响应。"),
-                    "input_tokens": input_tokens,
-                    "output_tokens": task.get("output_tokens", input_tokens),
-                    "hardware": device,
-                    "metrics": metrics
-                })
-                
-            except Exception as e:
-                self.logger.error(f"任务分配失败: {str(e)}")
-                continue
-                
-        return results
-        
+        try:
+            # 使用调度器分配任务
+            allocations = self.scheduler.schedule(tasks)
+            
+            # 为每个分配添加性能分析器
+            for allocation in allocations:
+                hw_type = allocation["hardware"]
+                if hw_type in self.profilers:
+                    allocation["profiler"] = self.profilers[hw_type]
+                else:
+                    logger.warning(f"未找到 {hw_type} 的性能分析器")
+            
+            return allocations
+        except Exception as e:
+            logger.error(f"分配任务失败: {e}")
+            raise
+    
     def cleanup(self) -> None:
         """清理资源。"""
         for profiler in self.profilers.values():
-            profiler.cleanup()
+            try:
+                profiler.cleanup()
+            except Exception as e:
+                logger.warning(f"清理性能分析器失败: {e}")

@@ -1,155 +1,205 @@
+"""基于令牌的调度器测试模块。"""
+
 import pytest
 from src.scheduling.token_based_scheduler import TokenBasedScheduler
-from toolbox.logger import get_logger
+from typing import Dict, Any, List
 
-logger = get_logger(__name__)
+# 测试配置
+TEST_CONFIG = {
+    "thresholds": {
+        "T_in": 1000,
+        "T_out": 100
+    },
+    "hardware_map": {
+        "small": "apple_m1_pro",
+        "medium": "nvidia_rtx4050",
+        "large": "nvidia_rtx4090"
+    }
+}
 
-class TestTokenBasedScheduler:
-    """测试基于token的调度器"""
+@pytest.fixture
+def scheduler():
+    """创建 TokenBasedScheduler 实例的 fixture。"""
+    return TokenBasedScheduler(TEST_CONFIG)
+
+def test_initialization(scheduler):
+    """测试初始化。"""
+    assert scheduler.config == TEST_CONFIG
+    assert scheduler.thresholds["T_in"] == 1000
+    assert scheduler.thresholds["T_out"] == 100
+    assert scheduler.hardware_map["small"] == "apple_m1_pro"
+    assert scheduler.hardware_map["medium"] == "nvidia_rtx4050"
+    assert scheduler.hardware_map["large"] == "nvidia_rtx4090"
+
+def test_schedule_small_task(scheduler):
+    """测试小任务调度。"""
+    tasks = [{
+        "input_tokens": 500,
+        "output_tokens": 50
+    }]
     
-    @classmethod
-    def setup_class(cls):
-        """测试类初始化"""
-        cls.scheduler_config = {
-            "hardware_map": {
-                "m1_pro": "apple_m1_pro",
-                "a100": "nvidia_a100",
-                "rtx4050": "nvidia_rtx4050",
-                "a800": "nvidia_a800"
-            }
-        }
-        
-    def test_scheduler_initialization(self):
-        """测试调度器初始化"""
-        # 测试有效阈值
-        thresholds = {"T_in": 32, "T_out": 32}
-        scheduler = TokenBasedScheduler(thresholds, self.scheduler_config)
-        assert scheduler.input_threshold == 32
-        assert scheduler.output_threshold == 32
-        
-        # 测试无效阈值
-        with pytest.raises(ValueError, match="Thresholds must be positive"):
-            TokenBasedScheduler({"T_in": -1, "T_out": 32}, self.scheduler_config)
-            
-        with pytest.raises(ValueError, match="Thresholds must include T_in and T_out"):
-            TokenBasedScheduler({"T_in": 32}, self.scheduler_config)
-            
-    def test_task_scheduling(self):
-        """测试任务调度"""
-        thresholds = {"T_in": 32, "T_out": 32}
-        scheduler = TokenBasedScheduler(thresholds, self.scheduler_config)
-        
-        # 测试小任务（应该分配给RTX4050）
-        small_task = {
-            "prompt": "Short prompt",
-            "response": "Short response",
-            "input_tokens": 10,
-            "output_tokens": 15
-        }
-        
-        # 测试中等任务（应该分配给M1 Pro）
-        medium_task = {
-            "prompt": "Medium prompt",
-            "response": "Medium response",
-            "input_tokens": 25,
-            "output_tokens": 30
-        }
-        
-        # 测试大任务（应该分配给A100/A800）
-        large_task = {
-            "prompt": "Large prompt",
-            "response": "Large response",
-            "input_tokens": 50,
-            "output_tokens": 60
-        }
-        
-        allocations = scheduler.schedule([small_task, medium_task, large_task])
-        
-        assert len(allocations) == 3
-        assert allocations[0]["hardware"] == "nvidia_rtx4050"  # 小任务
-        assert allocations[1]["hardware"] == "apple_m1_pro"    # 中等任务
-        assert allocations[2]["hardware"] in ["nvidia_a100", "nvidia_a800"]  # 大任务
-        
-    def test_empty_task_list(self):
-        """测试空任务列表"""
-        thresholds = {"T_in": 32, "T_out": 32}
-        scheduler = TokenBasedScheduler(thresholds, self.scheduler_config)
-        
-        allocations = scheduler.schedule([])
-        assert len(allocations) == 0
-        
-    def test_invalid_tasks(self):
-        """测试无效任务"""
-        thresholds = {"T_in": 32, "T_out": 32}
-        scheduler = TokenBasedScheduler(thresholds, self.scheduler_config)
-        
-        # 测试缺少token计数的任务
-        invalid_task = {
-            "prompt": "Test prompt",
-            "response": "Test response"
-        }
-        
-        allocations = scheduler.schedule([invalid_task])
-        assert len(allocations) == 0
-        
-    def test_edge_cases(self):
-        """测试边界情况"""
-        thresholds = {"T_in": 32, "T_out": 32}
-        scheduler = TokenBasedScheduler(thresholds, self.scheduler_config)
-        
-        # 测试恰好等于阈值的任务
-        edge_task = {
-            "prompt": "Edge case",
-            "response": "Edge response",
-            "input_tokens": 32,
-            "output_tokens": 32
-        }
-        
-        allocations = scheduler.schedule([edge_task])
-        assert len(allocations) == 1
-        assert allocations[0]["hardware"] == "apple_m1_pro"  # 应该分配给M1 Pro
-        
-    def test_performance_metrics(self):
-        """测试性能指标"""
-        thresholds = {"T_in": 32, "T_out": 32}
-        scheduler = TokenBasedScheduler(thresholds, self.scheduler_config)
-        
-        # 创建多个任务
-        tasks = []
-        for i in range(100):
-            input_tokens = i % 50 + 1  # 1-50
-            output_tokens = i % 40 + 1  # 1-40
-            tasks.append({
-                "prompt": f"Task {i}",
-                "response": f"Response {i}",
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens
-            })
-        
-        # 测量调度时间
-        import time
-        start_time = time.time()
-        allocations = scheduler.schedule(tasks)
-        end_time = time.time()
-        
-        # 验证调度时间
-        assert end_time - start_time < 1.0  # 100个任务的调度时间应小于1秒
-        
-        # 验证任务分配比例
-        hardware_counts = {}
-        for alloc in allocations:
-            hardware = alloc["hardware"]
-            hardware_counts[hardware] = hardware_counts.get(hardware, 0) + 1
-            
-        total_tasks = len(allocations)
-        for hardware, count in hardware_counts.items():
-            ratio = count / total_tasks
-            logger.info(f"{hardware}任务比例: {ratio:.2%}")
-            
-        # 验证小任务主要分配给RTX4050
-        assert hardware_counts.get("nvidia_rtx4050", 0) > 0
-        # 验证中等任务主要分配给M1 Pro
-        assert hardware_counts.get("apple_m1_pro", 0) > 0
-        # 验证大任务主要分配给A100/A800
-        assert (hardware_counts.get("nvidia_a100", 0) + 
-                hardware_counts.get("nvidia_a800", 0)) > 0 
+    allocations = scheduler.schedule(tasks)
+    assert len(allocations) == 1
+    assert allocations[0]["hardware"] == "apple_m1_pro"
+    assert allocations[0]["input_tokens"] == 500
+    assert allocations[0]["output_tokens"] == 50
+
+def test_schedule_medium_task(scheduler):
+    """测试中等任务调度。"""
+    tasks = [{
+        "input_tokens": 1500,
+        "output_tokens": 150
+    }]
+    
+    allocations = scheduler.schedule(tasks)
+    assert len(allocations) == 1
+    assert allocations[0]["hardware"] == "nvidia_rtx4050"
+    assert allocations[0]["input_tokens"] == 1500
+    assert allocations[0]["output_tokens"] == 150
+
+def test_schedule_large_task(scheduler):
+    """测试大任务调度。"""
+    tasks = [{
+        "input_tokens": 2500,
+        "output_tokens": 250
+    }]
+    
+    allocations = scheduler.schedule(tasks)
+    assert len(allocations) == 1
+    assert allocations[0]["hardware"] == "nvidia_rtx4090"
+    assert allocations[0]["input_tokens"] == 2500
+    assert allocations[0]["output_tokens"] == 250
+
+def test_schedule_multiple_tasks(scheduler):
+    """测试多任务调度。"""
+    tasks = [
+        {"input_tokens": 500, "output_tokens": 50},
+        {"input_tokens": 1500, "output_tokens": 150},
+        {"input_tokens": 2500, "output_tokens": 250}
+    ]
+    
+    allocations = scheduler.schedule(tasks)
+    assert len(allocations) == 3
+    assert allocations[0]["hardware"] == "apple_m1_pro"
+    assert allocations[1]["hardware"] == "nvidia_rtx4050"
+    assert allocations[2]["hardware"] == "nvidia_rtx4090"
+    
+    for i, task in enumerate(tasks):
+        assert allocations[i]["input_tokens"] == task["input_tokens"]
+        assert allocations[i]["output_tokens"] == task["output_tokens"]
+
+def test_schedule_boundary_conditions(scheduler):
+    """测试调度边界条件。"""
+    # 测试边界值任务
+    boundary_tasks = [
+        {"input_tokens": 999, "output_tokens": 99},  # 小任务边界
+        {"input_tokens": 1000, "output_tokens": 100},  # 中等任务边界
+        {"input_tokens": 1001, "output_tokens": 101}  # 大任务边界
+    ]
+    
+    allocations = scheduler.schedule(boundary_tasks)
+    assert len(allocations) == 3
+    assert allocations[0]["hardware"] == "apple_m1_pro"
+    assert allocations[1]["hardware"] == "nvidia_rtx4050"
+    assert allocations[2]["hardware"] == "nvidia_rtx4090"
+    
+    for i, task in enumerate(boundary_tasks):
+        assert allocations[i]["input_tokens"] == task["input_tokens"]
+        assert allocations[i]["output_tokens"] == task["output_tokens"]
+
+def test_schedule_edge_cases(scheduler):
+    """测试调度边缘情况。"""
+    # 测试极小任务
+    tiny_task = {
+        "input_tokens": 1,
+        "output_tokens": 1
+    }
+    
+    allocations = scheduler.schedule([tiny_task])
+    assert len(allocations) == 1
+    assert allocations[0]["hardware"] == "apple_m1_pro"
+    assert allocations[0]["input_tokens"] == 1
+    assert allocations[0]["output_tokens"] == 1
+    
+    # 测试极大任务
+    huge_task = {
+        "input_tokens": 1000000,
+        "output_tokens": 100000
+    }
+    
+    allocations = scheduler.schedule([huge_task])
+    assert len(allocations) == 1
+    assert allocations[0]["hardware"] == "nvidia_rtx4090"
+    assert allocations[0]["input_tokens"] == 1000000
+    assert allocations[0]["output_tokens"] == 100000
+
+def test_error_handling():
+    """测试错误处理。"""
+    # 测试无效配置
+    invalid_configs = [
+        {},  # 空配置
+        {"thresholds": {}},  # 缺少阈值
+        {"hardware_map": {}},  # 缺少硬件映射
+        {"thresholds": {"T_in": 1000}, "hardware_map": {}},  # 缺少 T_out
+        {"thresholds": {"T_out": 100}, "hardware_map": {}},  # 缺少 T_in
+        {"thresholds": {"T_in": 1000, "T_out": 100}, "hardware_map": {"small": "apple_m1_pro"}},  # 缺少 medium
+        {"thresholds": {"T_in": 1000, "T_out": 100}, "hardware_map": {"medium": "nvidia_rtx4050"}},  # 缺少 small
+        {"thresholds": {"T_in": 1000, "T_out": 100}, "hardware_map": {"small": "apple_m1_pro", "medium": "nvidia_rtx4050"}}  # 缺少 large
+    ]
+    
+    for config in invalid_configs:
+        with pytest.raises(ValueError):
+            TokenBasedScheduler(config)
+    
+    # 测试无效的阈值
+    invalid_thresholds = [
+        {"T_in": -1, "T_out": 100},  # 负的 T_in
+        {"T_in": 1000, "T_out": -1},  # 负的 T_out
+        {"T_in": 0, "T_out": 100},  # 零 T_in
+        {"T_in": 1000, "T_out": 0}  # 零 T_out
+    ]
+    
+    for thresholds in invalid_thresholds:
+        config = TEST_CONFIG.copy()
+        config["thresholds"] = thresholds
+        with pytest.raises(ValueError):
+            TokenBasedScheduler(config)
+    
+    # 测试无效的任务
+    scheduler = TokenBasedScheduler(TEST_CONFIG)
+    invalid_tasks = [
+        {"input_tokens": -1, "output_tokens": 50},
+        {"input_tokens": 100, "output_tokens": -1},
+        {"input_tokens": "500", "output_tokens": 50},
+        {"input_tokens": 500, "output_tokens": "50"},
+        {},
+        None
+    ]
+    
+    for task in invalid_tasks:
+        with pytest.raises((ValueError, TypeError, KeyError)):
+            scheduler.schedule([task])
+
+def test_config_validation():
+    """测试配置验证。"""
+    # 测试缺少必要参数
+    with pytest.raises(ValueError):
+        TokenBasedScheduler({})
+    
+    # 测试无效的阈值类型
+    invalid_config = TEST_CONFIG.copy()
+    invalid_config["thresholds"]["T_in"] = "1000"
+    with pytest.raises(TypeError):
+        TokenBasedScheduler(invalid_config)
+    
+    # 测试无效的硬件映射类型
+    invalid_config = TEST_CONFIG.copy()
+    invalid_config["hardware_map"] = "invalid"
+    with pytest.raises(TypeError):
+        TokenBasedScheduler(invalid_config)
+    
+    # 测试无效的硬件类型
+    invalid_config = TEST_CONFIG.copy()
+    invalid_config["hardware_map"]["small"] = 123
+    with pytest.raises(TypeError):
+        TokenBasedScheduler(invalid_config) 

@@ -10,8 +10,8 @@ from typing import Dict, Any, List
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
+from src.hardware_profiling import get_profiler, HardwareProfiler
 from src.hybrid_inference import HybridInference
-from src.hardware_profiling import get_profiler, BaseProfiler
 from src.model_zoo.base_model import BaseModel
 
 # 设置测试模式
