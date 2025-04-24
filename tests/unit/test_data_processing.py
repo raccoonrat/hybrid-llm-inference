@@ -3,10 +3,12 @@ import pytest
 import json
 import os
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from data_processing.data_loader import DataLoader
 from data_processing.token_processor import TokenProcessor
 from model_zoo import get_model
+from src.data_processing.token_processing import TokenProcessing
 
 @pytest.fixture
 def mock_data(tmp_path):
@@ -87,3 +89,49 @@ def test_token_processing(sample_data, model, tmp_path):
     assert 'output_distribution' in distribution
     assert (tmp_path / 'token_distribution.pkl').exists()
     assert (tmp_path / 'token_distribution.png').exists()
+
+@pytest.fixture
+def sample_data():
+    return pd.DataFrame({
+        'text': ['这是一个测试文本', '这是另一个测试文本'],
+        'label': [0, 1]
+    })
+
+@pytest.fixture
+def token_processor():
+    return TokenProcessing()
+
+@pytest.fixture
+def data_loader():
+    return DataLoader()
+
+def test_token_processing(token_processor, sample_data):
+    # Test tokenization
+    tokens = token_processor.tokenize(sample_data['text'].iloc[0])
+    assert isinstance(tokens, list)
+    assert len(tokens) > 0
+    
+    # Test encoding
+    encoded = token_processor.encode(sample_data['text'].iloc[0])
+    assert isinstance(encoded, list)
+    assert len(encoded) > 0
+    
+    # Test decoding
+    decoded = token_processor.decode(encoded)
+    assert isinstance(decoded, str)
+    assert len(decoded) > 0
+
+def test_data_loader(data_loader, sample_data, tmp_path):
+    # Save test data
+    data_path = tmp_path / "test_data.csv"
+    sample_data.to_csv(data_path, index=False)
+    
+    # Test data loading
+    loaded_data = data_loader.load_data(data_path)
+    assert isinstance(loaded_data, pd.DataFrame)
+    assert len(loaded_data) == len(sample_data)
+    
+    # Test data preprocessing
+    processed_data = data_loader.preprocess(loaded_data)
+    assert isinstance(processed_data, pd.DataFrame)
+    assert len(processed_data) == len(sample_data)
