@@ -2,13 +2,20 @@
 # This test file is temporarily commented out because the system_integration module has not been implemented
 """系统集成测试模块。"""
 
+import os
+import sys
+from pathlib import Path
 import pytest
 import pandas as pd
 import yaml
 import json
 import pickle
-import os
-from pathlib import Path
+from typing import Dict, Any, List
+
+# 添加项目根目录到 Python 路径
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
 from src.dataset_manager.alpaca_loader import AlpacaLoader
 from src.data_processing.token_processing import TokenProcessing
 from src.optimization_engine.threshold_optimizer import ThresholdOptimizer
@@ -22,6 +29,8 @@ from src.system_integration.pipeline import SystemPipeline
 from src.hybrid_inference import HybridInference
 from src.scheduling.task_scheduler import TaskScheduler
 from src.model_zoo.mistral import LocalMistral
+from src.hardware_profiling import get_profiler
+from src.model_zoo.base_model import BaseModel
 
 @pytest.fixture
 def tmp_dir(tmp_path):
