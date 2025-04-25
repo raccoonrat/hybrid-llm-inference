@@ -3,6 +3,7 @@
 
 import os
 import json
+import shutil
 from typing import Dict, Any, List, Optional
 from toolbox.logger import get_logger
 from .base_benchmarking import BaseBenchmarking
@@ -128,5 +129,11 @@ class ModelBenchmarking(BaseBenchmarking):
     
     def cleanup(self) -> None:
         """清理资源。"""
+        if os.path.exists(self.output_dir):
+            try:
+                shutil.rmtree(self.output_dir)
+            except Exception as e:
+                logger.error(f"清理输出目录失败: {str(e)}")
+                raise
         super().cleanup()
         logger.info("模型基准测试清理完成")
