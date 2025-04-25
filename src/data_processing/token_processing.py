@@ -11,6 +11,10 @@ from typing import Dict, List, Optional, Union
 from .token_processor import TokenProcessor
 import logging
 
+# 设置中文字体
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
+plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+
 logging.basicConfig(level=logging.INFO)
 
 class TokenProcessing:
@@ -20,7 +24,11 @@ class TokenProcessing:
         
     def process_tokens(self, texts: List[str]) -> pd.DataFrame:
         """处理文本并返回包含 token 数据的 DataFrame"""
-        return self.processor.batch_process(texts)
+        results = []
+        for text in texts:
+            result = self.processor.process_text(text)
+            results.append(result)
+        return pd.DataFrame(results)
         
     def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict[str, float]:
         """计算 token 分布
@@ -95,7 +103,7 @@ class TokenProcessing:
             self.logger.error(f"生成分布图失败: {str(e)}")
         
     def get_token_data(self, df: pd.DataFrame, format: str = 'dataframe') -> Union[pd.DataFrame, Dict[str, List]]:
-        """获取处理后的 token 数据
+        """获取 token 数据
         
         Args:
             df: 输入 DataFrame

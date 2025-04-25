@@ -308,7 +308,7 @@ class RTX4050Profiler(HardwareProfiler):
             "avg_power": avg_power,
             "avg_memory": avg_memory,
             "avg_utilization": avg_utilization
-        }
+        } 
 
     def get_memory_info(self) -> Dict[str, float]:
         """获取 GPU 内存信息。

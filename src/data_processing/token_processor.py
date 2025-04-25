@@ -39,6 +39,7 @@ class TokenProcessor:
             model_path: 模型路径
         """
         self.logger = logging.getLogger(__name__)
+        self.model_path = model_path
         
         if not model_path or not isinstance(model_path, str):
             raise ValueError("模型路径必须是非空字符串")
@@ -51,6 +52,17 @@ class TokenProcessor:
             except Exception as e:
                 raise RuntimeError(f"加载模型失败：{str(e)}")
                 
+    def process(self, text: str) -> List[int]:
+        """处理单个文本。
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            List[int]: token列表
+        """
+        return self.tokenizer.encode(text)
+                
     def process_text(self, text: str) -> Dict[str, Union[List[int], str]]:
         """处理单个文本。
         
@@ -61,7 +73,7 @@ class TokenProcessor:
             Dict[str, Union[List[int], str]]: 包含token和解码文本的字典
         """
         try:
-            tokens = self.tokenizer.encode(text, return_tensors='pt')[0].tolist()
+            tokens = self.tokenizer.encode(text)
             decoded = self.tokenizer.decode(tokens)
             return {
                 "input_tokens": tokens,
@@ -73,19 +85,40 @@ class TokenProcessor:
                 "input_tokens": [],
                 "decoded_text": ""
             }
+            
+    def encode(self, text: str) -> List[int]:
+        """编码文本。
         
-    def batch_process(self, texts: List[str]) -> pd.DataFrame:
+        Args:
+            text: 输入文本
+            
+        Returns:
+            List[int]: token列表
+        """
+        return self.tokenizer.encode(text)
+        
+    def decode(self, tokens: List[int]) -> str:
+        """解码token。
+        
+        Args:
+            tokens: token列表
+            
+        Returns:
+            str: 解码后的文本
+        """
+        return self.tokenizer.decode(tokens)
+        
+    def batch_process(self, texts: List[str]) -> List[List[int]]:
         """批量处理多个文本。
         
         Args:
             texts: 输入文本列表
             
         Returns:
-            pd.DataFrame: 每个文本的处理结果
+            List[List[int]]: 每个文本的token列表
         """
         try:
-            results = [self.process_text(text) for text in texts]
-            return pd.DataFrame(results)
+            return [self.process(text) for text in texts]
         except Exception as e:
             self.logger.error(f"批量处理失败: {str(e)}")
             raise

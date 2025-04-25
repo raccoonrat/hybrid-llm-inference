@@ -114,7 +114,7 @@ def test_resource_cleanup(profiler, mock_nvml):
     profiler.measure(100)
     profiler.cleanup()
     assert profiler.device is None
-
+    
 def test_concurrent_operations(profiler, mock_nvml):
     """测试并发操作。"""
     def measure_task():

@@ -13,14 +13,14 @@ class MockModel(BaseModel):
     模拟模型类，用于测试目的。
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, model_path: str):
         """
         初始化模拟模型。
 
         Args:
-            config: 模型配置
+            model_path: 模型路径
         """
-        super().__init__(config)
+        super().__init__(model_path)
         self.response_text = "这是一个模拟的响应。"
         self.token_multiplier = 1.5  # 用于模拟token计数
         logger.info("模拟模型初始化完成")
@@ -68,4 +68,17 @@ class MockModel(BaseModel):
             return 0
         token_count = int(len(text) * self.token_multiplier)
         logger.debug(f"计算token数量: {token_count}")
-        return token_count 
+        return token_count
+
+    def generate(self, prompt: str, max_length: int = 100) -> str:
+        """
+        生成文本。
+
+        Args:
+            prompt: 输入提示
+            max_length: 最大生成长度
+
+        Returns:
+            str: 生成的文本
+        """
+        return f"Mock response to: {prompt}" 

@@ -8,9 +8,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import json
-from hybrid_llm_inference.src.data_processing.data_loader import DataLoader
-from hybrid_llm_inference.src.data_processing.token_processor import TokenProcessor, MockTokenizer
-from hybrid_llm_inference.src.data_processing.token_processing import TokenProcessing
+from src.data_processing.data_loader import DataLoader
+from src.data_processing.token_processor import TokenProcessor, MockTokenizer
+from src.data_processing.token_processing import TokenProcessing
 
 @pytest.fixture
 def model_path(tmp_path):
