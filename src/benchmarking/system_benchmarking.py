@@ -10,6 +10,8 @@ from toolbox.logger import get_logger
 from .base_benchmarking import BaseBenchmarking
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from src.model_zoo.tinyllama import TinyLlama
+import time
+import random
 
 logger = get_logger(__name__)
 
@@ -96,15 +98,44 @@ class SystemBenchmarking(BaseBenchmarking):
             "gpu_utilization": self.profiler.get_gpu_utilization()
         }
     
-    def _process_task(self, task: Dict[str, Any]) -> Dict[str, float]:
-        """处理单个任务。"""
-        # 模拟任务处理
-        return {
-            "throughput": 100.0,
-            "latency": 0.1,
-            "energy": 50.0,
-            "runtime": 1.0
-        }
+    def _process_task(self, task):
+        """处理单个基准测试任务。
+
+        Args:
+            task (dict): 要处理的任务数据
+
+        Returns:
+            dict: 处理结果，包含性能指标
+
+        Raises:
+            RuntimeError: 当发生硬件错误时抛出
+        """
+        try:
+            # 模拟任务处理
+            time.sleep(0.1)
+            
+            # 获取资源使用情况
+            power_usage = self.profiler.get_power_usage()
+            if power_usage is None:
+                raise RuntimeError("硬件错误：无法获取功耗数据")
+            
+            memory_usage = self.profiler.get_memory_usage()
+            if memory_usage is None:
+                raise RuntimeError("硬件错误：无法获取内存使用数据")
+            
+            # 计算性能指标
+            throughput = random.uniform(90.0, 110.0)
+            latency = random.uniform(0.08, 0.12)
+            
+            return {
+                "throughput": throughput,
+                "latency": latency,
+                "power_usage": power_usage,
+                "memory_usage": memory_usage
+            }
+        except Exception as e:
+            self.logger.error(f"处理任务时发生错误: {str(e)}")
+            raise RuntimeError(f"处理任务失败: {str(e)}")
     
     def _validate_scheduling_strategy(self, strategy: str) -> None:
         """验证调度策略。"""
@@ -112,72 +143,93 @@ class SystemBenchmarking(BaseBenchmarking):
         if strategy not in valid_strategies:
             raise ValueError(f"无效的调度策略: {strategy}")
     
-    def run_benchmarks(self, tasks: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """运行基准测试。
+    def _apply_scheduling_strategy(self, tasks):
+        """应用指定的调度策略。
 
         Args:
-            tasks: 待测试的任务列表
+            tasks (list): 要调度的任务列表
 
         Returns:
-            dict: 基准测试结果，包含以下字段：
-                - metrics: 基本性能指标
-                - hardware_metrics: 硬件监控指标
-                - parallel_metrics: 并行处理指标
-                - scheduling_metrics: 调度指标
-                - tradeoff_results: 权衡分析结果
+            list: 按调度策略排序后的任务列表
         """
-        if not self.initialized:
-            raise RuntimeError("基准测试未初始化")
+        strategy = self.scheduler_config.get("strategy", "round_robin")
+        self._validate_scheduling_strategy(strategy)
+        
+        if strategy == "round_robin":
+            return tasks
+        elif strategy == "token_based":
+            # 按token数量排序
+            return sorted(tasks, key=lambda x: len(x.get("tokens", [])), reverse=True)
+        elif strategy == "dynamic":
+            # 动态调度：根据当前资源使用情况调整
+            current_load = self.profiler.get_current_load()
+            if current_load > 0.8:
+                return sorted(tasks, key=lambda x: len(x.get("tokens", [])), reverse=True)
+            else:
+                return tasks
+        else:
+            self.logger.warning(f"未知的调度策略: {strategy}，使用默认的round_robin策略")
+            return tasks
+    
+    def run_benchmarks(self):
+        """运行基准测试。
+
+        Returns:
+            dict: 基准测试结果
             
+        Raises:
+            RuntimeError: 当发生硬件错误或其他运行时错误时抛出
+        """
         try:
-            # 监控资源使用
-            hardware_metrics = {
-                "power_usage": self.profiler.get_power_usage(),
-                "memory_usage": self.profiler.get_memory_usage(),
-                "gpu_utilization": self.profiler.get_gpu_utilization()
-            }
+            # 加载数据集
+            if not hasattr(self, 'dataset'):
+                self._load_dataset()
+            if not self.dataset:
+                raise ValueError("数据集为空")
             
-            # 获取调度策略
-            strategy = self.scheduler_config.get("strategy", "round_robin")
-            self._validate_scheduling_strategy(strategy)
+            # 应用调度策略
+            scheduled_tasks = self._apply_scheduling_strategy(self.dataset)
+            
+            # 获取工作进程数
+            num_workers = self.scheduler_config.get("num_workers", 1)
             
             # 多进程处理
-            num_workers = self.scheduler_config.get("num_workers", 1)
+            parallel_results = []
             if num_workers > 1:
-                with multiprocessing.Pool(num_workers) as pool:
-                    parallel_results = pool.map(self._process_task, self.dataset)
+                with multiprocessing.Pool(processes=num_workers) as pool:
+                    try:
+                        parallel_results = pool.map(self._process_task, scheduled_tasks)
+                    except Exception as e:
+                        self.logger.error(f"多进程处理失败: {str(e)}")
+                        raise RuntimeError(f"多进程处理失败: {str(e)}")
             else:
-                parallel_results = [self._process_task(task) for task in self.dataset]
+                for task in scheduled_tasks:
+                    try:
+                        result = self._process_task(task)
+                        parallel_results.append(result)
+                    except Exception as e:
+                        self.logger.error(f"任务处理失败: {str(e)}")
+                        raise RuntimeError(f"任务处理失败: {str(e)}")
             
-            # 计算调度指标
-            scheduling_metrics = {
-                "strategy": strategy,
-                "avg_wait_time": 0.1,  # 示例值
-                "avg_queue_length": 2.0,  # 示例值
-                "num_workers": num_workers
+            # 计算总体指标
+            metrics = {
+                "throughput": sum(r["throughput"] for r in parallel_results) / len(parallel_results),
+                "latency": sum(r["latency"] for r in parallel_results) / len(parallel_results),
+                "power_usage": sum(r["power_usage"] for r in parallel_results) / len(parallel_results),
+                "memory_usage": sum(r["memory_usage"] for r in parallel_results) / len(parallel_results)
             }
             
-            # 合并所有指标
-            metrics = self.get_metrics()
             return {
                 "metrics": metrics,
-                "hardware_metrics": hardware_metrics,
                 "parallel_metrics": parallel_results,
-                "scheduling_metrics": scheduling_metrics,
-                "tradeoff_results": {
-                    "weights": [0.2, 0.5, 0.8],
-                    "values": [
-                        {
-                            "throughput": metrics.get("throughput", 0.0),
-                            "latency": metrics.get("latency", 0.0),
-                            "energy": metrics.get("energy", 0.0),
-                            "runtime": metrics.get("runtime", 0.0)
-                        }
-                    ]
+                "scheduling_metrics": {
+                    "strategy": self.scheduler_config.get("strategy", "round_robin"),
+                    "num_workers": num_workers,
+                    "tasks_processed": len(parallel_results)
                 }
             }
         except Exception as e:
-            logger.error(f"基准测试运行失败: {str(e)}")
+            self.logger.error(f"运行基准测试时发生错误: {str(e)}")
             raise
     
     def get_metrics(self) -> Dict[str, float]:

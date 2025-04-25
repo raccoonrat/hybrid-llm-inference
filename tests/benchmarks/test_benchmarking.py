@@ -232,9 +232,8 @@ def test_report_generator_valid_output(tmp_path):
             "energy": 50.0,
             "runtime": 1.0,
             "summary": {
-                "average_throughput": 100.0,
-                "average_latency": 0.1,
-                "average_energy": 50.0,
+                "avg_throughput": 100.0,
+                "avg_latency": 0.1,
                 "avg_energy_per_token": 0.5,
                 "avg_runtime": 1.0
             }

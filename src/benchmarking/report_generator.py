@@ -10,7 +10,7 @@ import numpy as np
 from toolbox.logger import get_logger
 import logging
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class ReportGenerator:
     """报告生成器类。"""
@@ -23,13 +23,18 @@ class ReportGenerator:
             style_config: 图表样式配置
         """
         self.output_dir = output_dir
+        self.logger = get_logger(__name__)
         os.makedirs(output_dir, exist_ok=True)
         
         # 设置图表样式
         if style_config:
             plt.rcParams.update(style_config)
         
-        logger.info("报告生成器初始化完成")
+        # 配置中文字体
+        plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
+        plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+        
+        self.logger.info("报告生成器初始化完成")
     
     def _validate_tradeoff_results(self, tradeoff_results: Dict[str, Any]) -> None:
         """验证权衡结果的格式和内容。
@@ -274,147 +279,169 @@ class ReportGenerator:
         plt.savefig(os.path.join(self.output_dir, "metrics_heatmap.png"))
         plt.close()
     
-    def generate_report(self, metrics: Dict[str, Any], tradeoff_results: Dict[str, Any],
-                       output_format: str = "html", template: str = None) -> None:
-        """生成报告。
+    def _validate_data(self, data):
+        """验证数据格式。
 
         Args:
-            metrics: 性能指标数据
-            tradeoff_results: 权衡分析结果
-            output_format: 输出格式，支持 "html"、"pdf" 和 "csv"
-            template: 自定义HTML模板
+            data (dict): 要验证的数据
 
         Raises:
-            ValueError: 当指标数据为空或格式不正确时抛出
+            ValueError: 如果数据格式无效
         """
-        try:
-            # 首先验证指标数据是否为空
-            if not metrics:
-                raise ValueError("指标数据不能为空")
+        if not data:
+            raise ValueError("指标数据不能为空")
+            
+        # 检查是否是系统基准测试数据格式
+        if all(field in data for field in ["metrics", "parallel_metrics", "scheduling_metrics"]):
+            if not isinstance(data["metrics"], dict):
+                raise ValueError("metrics必须是字典类型")
+            if not isinstance(data["parallel_metrics"], list):
+                raise ValueError("parallel_metrics必须是列表类型")
+            if not isinstance(data["scheduling_metrics"], dict):
+                raise ValueError("scheduling_metrics必须是字典类型")
+            return
+            
+        # 检查是否是模型基准测试数据格式
+        if isinstance(data, dict) and all(isinstance(v, dict) for v in data.values()):
+            for model, metrics in data.items():
+                if not all(k in metrics for k in ["throughput", "latency", "energy", "runtime"]):
+                    raise ValueError(f"模型 {model} 缺少必要的性能指标")
+                if "summary" not in metrics:
+                    raise ValueError(f"模型 {model} 缺少summary字段")
+            return
+            
+        raise ValueError("无效的数据格式")
 
-            # 验证数据
-            self.validate_metrics(metrics)
-            self._validate_tradeoff_results(tradeoff_results)
-            
-            # 生成图表
-            self._generate_plots(metrics, tradeoff_results)
-            
-            # 根据输出格式生成报告
-            if output_format == "html":
-                self._generate_html_report(metrics, tradeoff_results, template)
-            elif output_format == "pdf":
-                self._generate_pdf_report(metrics, tradeoff_results)
-            elif output_format == "csv":
-                self._generate_csv_report(metrics)
-            else:
-                raise ValueError(f"不支持的输出格式: {output_format}")
-            
-        except Exception as e:
-            logger.error(f"生成报告失败: {str(e)}")
-            raise
-    
-    def _generate_plots(self, benchmark_results: dict, tradeoff_results: dict) -> None:
-        """生成图表。"""
-        try:
-            self._plot_energy_per_token(benchmark_results)
-            self._plot_runtime(benchmark_results)
-            self._plot_tradeoff_curve(tradeoff_results)
-        except Exception as e:
-            logger.error(f"生成图表失败: {str(e)}")
-            raise
-    
-    def _plot_energy_per_token(self, results: dict) -> None:
-        """绘制每令牌能量图。"""
-        plt.figure(figsize=(10, 6))
-        models = list(results.keys())
-        energy_per_token = [results[model]["summary"]["avg_energy_per_token"] for model in models]
-        
-        plt.bar(models, energy_per_token)
-        plt.xlabel("Model")
-        plt.ylabel("Energy per Token (J/token)")
-        plt.title("Energy per Token Comparison")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        plt.savefig(os.path.join(self.output_dir, "energy_per_token.png"))
-        plt.close()
-    
-    def _plot_runtime(self, results: dict) -> None:
-        """绘制运行时间图。"""
-        plt.figure(figsize=(10, 6))
-        models = list(results.keys())
-        runtime = [results[model]["summary"]["avg_runtime"] for model in models]
-        
-        plt.bar(models, runtime)
-        plt.xlabel("Model")
-        plt.ylabel("Runtime (s)")
-        plt.title("Runtime Comparison")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        plt.savefig(os.path.join(self.output_dir, "runtime.png"))
-        plt.close()
-    
-    def _plot_tradeoff_curve(self, results: dict) -> None:
-        """绘制权衡曲线。"""
-        plt.figure(figsize=(10, 6))
-        weights = results["weights"]
-        values = results["values"]
-        
-        # 确保每个指标的值列表长度与权重列表长度相同
-        energy_values = []
-        runtime_values = []
-        throughput_values = []
-        
-        # 如果只有一个值，则将其重复扩展到与权重列表相同的长度
-        if len(values) == 1:
-            value = values[0]
-            energy_values = [value["energy"]] * len(weights)
-            runtime_values = [value["runtime"]] * len(weights)
-            throughput_values = [value["throughput"]] * len(weights)
-        else:
-            energy_values = [v["energy"] for v in values]
-            runtime_values = [v["runtime"] for v in values]
-            throughput_values = [v["throughput"] for v in values]
-        
-        plt.plot(weights, energy_values, label="Energy")
-        plt.plot(weights, runtime_values, label="Runtime")
-        plt.plot(weights, throughput_values, label="Throughput")
-        
-        plt.xlabel("Weight")
-        plt.ylabel("Value")
-        plt.title("Energy-Runtime Tradeoff Curve")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        
-        plt.savefig(os.path.join(self.output_dir, "tradeoff_curve.png"))
-        plt.close()
-    
-    def _generate_html_report(self, benchmark_results: dict, tradeoff_results: dict, template: str = None) -> None:
-        """生成HTML报告。"""
-        html_content = """
-        <html>
-        <head>
-            <title>Benchmark Report</title>
-            <style>
-                body { font-family: Arial, sans-serif; margin: 20px; }
-                h1 { color: #333; }
-                img { max-width: 100%; margin: 20px 0; }
-                table { border-collapse: collapse; width: 100%; }
-                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                th { background-color: #f2f2f2; }
-            </style>
-        </head>
-        <body>
-            <h1>Benchmark Report</h1>
-            <h2>Performance Metrics</h2>
-            <img src="energy_per_token.png" alt="Energy per Token">
-            <img src="runtime.png" alt="Runtime">
-            <img src="tradeoff_curve.png" alt="Tradeoff Curve">
-        </body>
-        </html>
+    def _plot_tradeoff_curve(self, data, output_path):
+        """绘制权衡曲线。
+
+        Args:
+            data (dict): 基准测试数据
+            output_path (str): 输出文件路径
         """
+        try:
+            # 提取数据
+            throughputs = [m["throughput"] for m in data["parallel_metrics"]]
+            latencies = [m["latency"] for m in data["parallel_metrics"]]
+            
+            if not throughputs or not latencies:
+                raise ValueError("没有足够的数据来绘制权衡曲线")
+            
+            # 创建图表
+            plt.figure(figsize=(10, 6))
+            plt.scatter(throughputs, latencies, alpha=0.6)
+            
+            # 添加趋势线
+            z = np.polyfit(throughputs, latencies, 1)
+            p = np.poly1d(z)
+            plt.plot(throughputs, p(throughputs), "r--", alpha=0.5)
+            
+            # 设置图表属性
+            plt.title("吞吐量-延迟权衡曲线")
+            plt.xlabel("吞吐量 (requests/second)")
+            plt.ylabel("延迟 (seconds)")
+            plt.grid(True)
+            
+            # 保存图表
+            plt.savefig(output_path)
+            plt.close()
+        except Exception as e:
+            self.logger.error(f"绘制权衡曲线时发生错误: {str(e)}")
+            raise
+
+    def generate_report(self, data, output_dir, output_format="markdown"):
+        """生成基准测试报告。
+
+        Args:
+            data (dict): 基准测试数据
+            output_dir (str): 输出目录
+            output_format (str): 输出格式，支持 "markdown"、"html"、"pdf"
+
+        Returns:
+            str: 生成的报告文件路径
+        """
+        try:
+            # 验证数据
+            self._validate_data(data)
+            
+            # 创建输出目录
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # 根据数据类型生成不同的报告
+            if all(field in data for field in ["metrics", "parallel_metrics", "scheduling_metrics"]):
+                return self._generate_system_report(data, output_dir, output_format)
+            else:
+                return self._generate_model_report(data, output_dir, output_format)
+        except Exception as e:
+            self.logger.error(f"生成报告时发生错误: {str(e)}")
+            raise
+
+    def _generate_system_report(self, data, output_dir, output_format):
+        """生成系统基准测试报告。"""
+        report_path = os.path.join(output_dir, f"benchmark_report.{output_format}")
         
-        with open(os.path.join(self.output_dir, "report.html"), "w", encoding="utf-8") as f:
-            f.write(html_content)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("# 基准测试报告\n\n")
+            
+            # 写入基本指标
+            f.write("## 基本指标\n\n")
+            for key, value in data["metrics"].items():
+                f.write(f"- {key}: {value:.2f}\n")
+                
+            # 写入调度指标
+            f.write("\n## 调度指标\n\n")
+            for key, value in data["scheduling_metrics"].items():
+                f.write(f"- {key}: {value}\n")
+                
+            # 生成权衡曲线
+            curve_path = os.path.join(output_dir, "tradeoff_curve.png")
+            self._plot_tradeoff_curve(data, curve_path)
+            f.write(f"\n## 权衡曲线\n\n![权衡曲线]({os.path.basename(curve_path)})\n")
+            
+        return report_path
+
+    def _generate_model_report(self, data, output_dir, output_format):
+        """生成模型基准测试报告。"""
+        report_path = os.path.join(output_dir, f"model_benchmark_report.{output_format}")
+        
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("# 模型基准测试报告\n\n")
+            
+            for model, metrics in data.items():
+                f.write(f"## {model}\n\n")
+                
+                # 写入基本指标
+                f.write("### 性能指标\n\n")
+                for key in ["throughput", "latency", "energy", "runtime"]:
+                    f.write(f"- {key}: {metrics[key]:.2f}\n")
+                
+                # 写入汇总指标
+                f.write("\n### 汇总指标\n\n")
+                for key, value in metrics["summary"].items():
+                    f.write(f"- {key}: {value:.2f}\n")
+                
+                f.write("\n")
+                
+            # 生成性能对比图
+            self._plot_model_comparison(data, output_dir)
+            
+        return report_path
+
+    def _plot_model_comparison(self, data, output_dir):
+        """绘制模型性能对比图。"""
+        metrics = ["throughput", "latency", "energy", "runtime"]
+        
+        for metric in metrics:
+            plt.figure(figsize=(10, 6))
+            models = list(data.keys())
+            values = [data[model][metric] for model in models]
+            
+            plt.bar(models, values)
+            plt.title(f"{metric.capitalize()} 对比")
+            plt.xlabel("模型")
+            plt.ylabel(metric.capitalize())
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            
+            plt.savefig(os.path.join(output_dir, f"{metric}_comparison.png"))
+            plt.close()
