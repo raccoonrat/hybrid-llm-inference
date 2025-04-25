@@ -1,110 +1,151 @@
 # hybrid-llm-inference/src/benchmarking/report_generator.py
 import json
-import matplotlib.pyplot as plt
+import os
 from pathlib import Path
-import pandas as pd
+from typing import Dict, Any, Optional
+import matplotlib.pyplot as plt
+import numpy as np
 from toolbox.logger import get_logger
 
+logger = get_logger(__name__)
+
 class ReportGenerator:
-    def __init__(self, output_dir="data/benchmarks"):
+    """报告生成器类。"""
+    
+    def __init__(self, output_dir: Path) -> None:
         """
-        Initialize ReportGenerator for creating benchmark reports and visualizations.
+        初始化报告生成器。
         
         Args:
-            output_dir (str): Directory to save reports and plots.
+            output_dir: 输出目录
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = get_logger(__name__)
+        logger.info("报告生成器初始化完成")
     
-    def generate_report(self, benchmark_results, tradeoff_results=None):
+    def generate_report(self, benchmark_results: Dict[str, Any], tradeoff_results: Optional[Dict[str, Any]] = None) -> None:
         """
-        Generate benchmark report and visualizations.
+        生成基准测试报告。
         
         Args:
-            benchmark_results (dict): Results from SystemBenchmarking {strategy: {"metrics": list, "summary": dict}}.
-            tradeoff_results (dict): Optional tradeoff results from TradeoffAnalyzer {lambda: {"energy": float, "runtime": float}}.
-            
-        Raises:
-            ValueError: 如果基准测试结果为空或权衡结果无效。
+            benchmark_results: 基准测试结果
+            tradeoff_results: 权衡分析结果
         """
-        # 验证基准测试结果
         if not benchmark_results:
-            self.logger.error("基准测试结果为空")
-            raise ValueError("Benchmark results are empty")
+            raise ValueError("基准测试结果不能为空")
         
-        # 验证权衡结果
-        if tradeoff_results:
-            for lambda_val, metrics in tradeoff_results.items():
-                if metrics["energy"] < 0 or metrics["runtime"] < 0:
-                    self.logger.error(f"无效的权衡结果: lambda={lambda_val}, metrics={metrics}")
-                    raise ValueError("Invalid tradeoff results")
-        
-        # Save summary report
-        summary = {strategy: res["summary"] for strategy, res in benchmark_results.items()}
-        report_path = self.output_dir / "benchmark_summary.json"
-        with open(report_path, 'w') as f:
-            json.dump(summary, f, indent=2)
-        self.logger.info(f"Saved benchmark summary to {report_path}")
-        
-        # Generate visualizations
-        self._plot_energy_per_token(benchmark_results)
-        self._plot_runtime(benchmark_results)
-        if tradeoff_results:
-            self._plot_tradeoff(tradeoff_results)
+        try:
+            self._generate_summary(benchmark_results)
+            self._generate_plots(benchmark_results, tradeoff_results)
+            logger.info("报告生成完成")
+        except Exception as e:
+            logger.error(f"生成报告失败: {str(e)}")
+            raise
     
-    def _plot_energy_per_token(self, benchmark_results):
-        """Generate energy per token plot (similar to Figure 1)."""
-        plt.figure(figsize=(8, 6))
-        for strategy, res in benchmark_results.items():
-            metrics = pd.DataFrame(res["metrics"])
-            plt.hist(metrics["energy_per_token"], bins=50, alpha=0.5, label=strategy, density=True)
+    def _generate_summary(self, results: Dict[str, Any]) -> None:
+        """
+        生成摘要报告。
         
-        plt.xlabel("Energy per Token (Joules/token)")
-        plt.ylabel("Density")
-        plt.title("Energy per Token Distribution")
+        Args:
+            results: 基准测试结果
+        """
+        try:
+            summary = {}
+            for model, data in results.items():
+                if "summary" in data:
+                    summary[model] = data["summary"]
+                else:
+                    # 如果没有摘要，从指标中计算
+                    metrics = data.get("metrics", [])
+                    if metrics:
+                        summary[model] = {
+                            "avg_energy": np.mean([m["energy"] for m in metrics]),
+                            "avg_runtime": np.mean([m["runtime"] for m in metrics]),
+                            "avg_throughput": np.mean([m["throughput"] for m in metrics]),
+                            "avg_energy_per_token": np.mean([m["energy_per_token"] for m in metrics])
+                        }
+            
+            with open(self.output_dir / "benchmark_summary.json", "w") as f:
+                json.dump(summary, f, indent=2)
+        except Exception as e:
+            logger.error(f"生成摘要失败: {str(e)}")
+            raise
+    
+    def _generate_plots(self, results: Dict[str, Any], tradeoff_results: Optional[Dict[str, Any]] = None) -> None:
+        """
+        生成图表。
+        
+        Args:
+            results: 基准测试结果
+            tradeoff_results: 权衡分析结果
+        """
+        try:
+            # 生成能量每令牌图
+            self._plot_energy_per_token(results)
+            
+            # 生成运行时间图
+            self._plot_runtime(results)
+            
+            # 如果有权衡分析结果，生成权衡曲线
+            if tradeoff_results:
+                self._plot_tradeoff_curve(tradeoff_results)
+        except Exception as e:
+            logger.error(f"生成图表失败: {str(e)}")
+            raise
+    
+    def _plot_energy_per_token(self, results: Dict[str, Any]) -> None:
+        """
+        生成能量每令牌图。
+        
+        Args:
+            results: 基准测试结果
+        """
+        models = list(results.keys())
+        energy_per_token = [results[model]["summary"]["avg_energy_per_token"] for model in models]
+        
+        plt.figure(figsize=(10, 6))
+        plt.bar(models, energy_per_token)
+        plt.xlabel("模型")
+        plt.ylabel("能量每令牌 (J/token)")
+        plt.title("各模型能量每令牌比较")
+        plt.savefig(self.output_dir / "energy_per_token.png")
+        plt.close()
+    
+    def _plot_runtime(self, results: Dict[str, Any]) -> None:
+        """
+        生成运行时间图。
+        
+        Args:
+            results: 基准测试结果
+        """
+        models = list(results.keys())
+        runtime = [results[model]["summary"]["avg_runtime"] for model in models]
+        
+        plt.figure(figsize=(10, 6))
+        plt.bar(models, runtime)
+        plt.xlabel("模型")
+        plt.ylabel("运行时间 (s)")
+        plt.title("各模型运行时间比较")
+        plt.savefig(self.output_dir / "runtime.png")
+        plt.close()
+    
+    def _plot_tradeoff_curve(self, tradeoff_results: Dict[str, Any]) -> None:
+        """
+        生成权衡曲线。
+        
+        Args:
+            tradeoff_results: 权衡分析结果
+        """
+        weights = list(tradeoff_results.keys())
+        energy = [tradeoff_results[w]["energy"] for w in weights]
+        runtime = [tradeoff_results[w]["runtime"] for w in weights]
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(weights, energy, label="能量")
+        plt.plot(weights, runtime, label="运行时间")
+        plt.xlabel("权重")
+        plt.ylabel("值")
+        plt.title("能量和运行时间的权衡曲线")
         plt.legend()
-        plt.grid(True)
-        
-        plot_path = self.output_dir / "energy_per_token.png"
-        plt.savefig(plot_path)
+        plt.savefig(self.output_dir / "tradeoff_curve.png")
         plt.close()
-        self.logger.info(f"Saved energy per token plot to {plot_path}")
-    
-    def _plot_runtime(self, benchmark_results):
-        """Generate runtime plot (similar to Figure 2)."""
-        plt.figure(figsize=(8, 6))
-        for strategy, res in benchmark_results.items():
-            metrics = pd.DataFrame(res["metrics"])
-            plt.hist(metrics["runtime"], bins=50, alpha=0.5, label=strategy, density=True)
-        
-        plt.xlabel("Runtime (seconds)")
-        plt.ylabel("Density")
-        plt.title("Runtime Distribution")
-        plt.legend()
-        plt.grid(True)
-        
-        plot_path = self.output_dir / "runtime.png"
-        plt.savefig(plot_path)
-        plt.close()
-        self.logger.info(f"Saved runtime plot to {plot_path}")
-    
-    def _plot_tradeoff(self, tradeoff_results):
-        """Generate energy-runtime tradeoff plot (similar to Figure 4)."""
-        lambdas = list(tradeoff_results.keys())
-        energies = [tradeoff_results[l]["energy"] for l in lambdas]
-        runtimes = [tradeoff_results[l]["runtime"] for l in lambdas]
-        
-        plt.figure(figsize=(8, 6))
-        plt.plot(runtimes, energies, marker='o')
-        for i, l in enumerate(lambdas):
-            plt.annotate(f"λ={l:.1f}", (runtimes[i], energies[i]))
-        plt.xlabel("Average Runtime (seconds)")
-        plt.ylabel("Average Energy (Joules)")
-        plt.title("Energy-Runtime Tradeoff")
-        plt.grid(True)
-        
-        plot_path = self.output_dir / "tradeoff_curve.png"
-        plt.savefig(plot_path)
-        plt.close()
-        self.logger.info(f"Saved tradeoff curve to {plot_path}")

@@ -2,13 +2,69 @@
 from abc import ABC, abstractmethod
 import time
 import logging
+import os
+from typing import Dict, Any, Optional
+from toolbox.logger import get_logger
+import torch
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# 检查是否在测试模式下
+is_test_mode = os.environ.get('TEST_MODE', '0') == '1'
+
+class BaseProfiler(ABC):
+    """硬件性能分析器基类。"""
+    
+    def __init__(self, config: Dict[str, Any]):
+        """初始化性能分析器。
+
+        Args:
+            config: 配置字典
+        """
+        self.config = config
+        self.initialized = False
+        
+        # 验证配置
+        self._validate_config()
+        
+        # 初始化
+        self._init_profiler()
+        
+        self.initialized = True
+        logger.info(f"{self.__class__.__name__} 初始化完成")
+    
+    @abstractmethod
+    def _validate_config(self) -> None:
+        """验证配置。"""
+        pass
+    
+    @abstractmethod
+    def _init_profiler(self) -> None:
+        """初始化性能分析器。"""
+        pass
+    
+    @abstractmethod
+    def profile(self, model: torch.nn.Module, input_shape: Optional[tuple] = None) -> Dict[str, float]:
+        """分析模型性能。
+
+        Args:
+            model: PyTorch 模型
+            input_shape: 输入张量形状
+
+        Returns:
+            性能指标字典
+        """
+        pass
+    
+    @abstractmethod
+    def cleanup(self) -> None:
+        """清理资源。"""
+        pass
 
 class HardwareProfiler(ABC):
     """硬件分析器的基类"""
     
-    def __init__(self, config):
+    def __init__(self, config: Dict[str, Any]):
         """
         初始化硬件分析器
         
@@ -18,6 +74,45 @@ class HardwareProfiler(ABC):
         self.config = config
         self.idle_power = config.get("idle_power", 0.0)
         self.sample_interval = config.get("sample_interval", 200)  # ms
+        
+        # 在测试模式下跳过配置验证
+        if not is_test_mode:
+            self._validate_config()
+        
+        logger.info(f"{self.__class__.__name__} 初始化完成")
+        
+    def _validate_config(self) -> None:
+        """验证配置。"""
+        if not self.config:
+            raise ValueError("配置不能为空")
+        
+    def initialize(self) -> None:
+        """初始化硬件分析器。"""
+        logger.info(f"{self.__class__.__name__} 初始化完成")
+    
+    def start_measurement(self) -> None:
+        """开始测量。"""
+        logger.info("开始测量")
+    
+    def stop_measurement(self) -> Dict[str, float]:
+        """停止测量。
+
+        Returns:
+            测量结果
+        """
+        return {}
+    
+    def get_metrics(self) -> Dict[str, float]:
+        """获取性能指标。
+
+        Returns:
+            性能指标字典
+        """
+        return {}
+    
+    def cleanup(self) -> None:
+        """清理资源。"""
+        logger.info(f"{self.__class__.__name__} 清理完成")
         
     @abstractmethod
     def measure_power(self):

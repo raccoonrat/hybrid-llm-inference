@@ -1,91 +1,97 @@
 # hybrid-llm-inference/src/scheduling/token_based_scheduler.py
-"""基于 token 的调度器模块。"""
+"""基于令牌的调度器模块。"""
 
-import logging
-from typing import Dict, Any, List
+import os
+from typing import Dict, Any, List, Optional
+from toolbox.logger import get_logger
+from .base_scheduler import BaseScheduler
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-class TokenBasedScheduler:
-    """基于 token 的调度器类。"""
+class TokenBasedScheduler(BaseScheduler):
+    """基于令牌的调度器。"""
     
-    def __init__(self, config: Dict[str, Any]):
-        """初始化调度器。
+    def __init__(self, config: Dict[str, Any]) -> None:
+        """初始化基于令牌的调度器。
 
         Args:
-            config: 配置字典，必须包含：
-                - thresholds: 阈值配置，包含 T_in 和 T_out
-                - hardware_map: 硬件映射，包含 small、medium 和 large 的硬件类型
+            config: 配置字典，包含以下字段：
+                - token_threshold: 令牌阈值
+                - hardware_config: 硬件配置
+                - model_config: 模型配置
         """
-        self.config = config
+        # 初始化基本属性
+        self.token_threshold = config.get("token_threshold", 100)
+        self.hardware_config = config.get("hardware_config", {})
+        self.model_config = config.get("model_config", {})
+        self.initialized = False
+
+        # 验证配置
         self._validate_config()
+        
+        # 调用父类构造函数
+        super().__init__(config)
+        
+        # 初始化调度器
+        self._init_scheduler()
     
     def _validate_config(self) -> None:
         """验证配置。"""
-        if not self.config:
-            raise ValueError("配置不能为空")
+        if not isinstance(self.token_threshold, (int, float)) or self.token_threshold <= 0:
+            raise ValueError("令牌阈值必须是正数")
+        if not isinstance(self.hardware_config, dict):
+            raise ValueError("hardware_config 必须是字典")
+        if not isinstance(self.model_config, dict):
+            raise ValueError("model_config 必须是字典")
+    
+    def _init_scheduler(self) -> None:
+        """初始化调度器。"""
+        if self.initialized:
+            return
             
-        # 验证阈值配置
-        if "thresholds" not in self.config:
-            raise ValueError("配置缺少 thresholds")
-            
-        thresholds = self.config["thresholds"]
-        if "T_in" not in thresholds or "T_out" not in thresholds:
-            raise ValueError("thresholds 必须包含 T_in 和 T_out")
-            
-        if not isinstance(thresholds["T_in"], int) or thresholds["T_in"] <= 0:
-            raise ValueError("T_in 必须是正整数")
-            
-        if not isinstance(thresholds["T_out"], int) or thresholds["T_out"] <= 0:
-            raise ValueError("T_out 必须是正整数")
-            
-        # 验证硬件映射
-        if "hardware_map" not in self.config:
-            raise ValueError("配置缺少 hardware_map")
-            
-        hardware_map = self.config["hardware_map"]
-        required_hardware = ["small", "medium", "large"]
-        for hw in required_hardware:
-            if hw not in hardware_map:
-                raise ValueError(f"hardware_map 缺少 {hw} 硬件类型")
+        self.initialized = True
+        logger.info("基于令牌的调度器初始化完成")
     
     def schedule(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """调度任务。
 
         Args:
-            tasks: 任务列表，每个任务必须包含 input_tokens 和 output_tokens
+            tasks: 任务列表，每个任务包含以下字段：
+                - tokens: 令牌数量
 
         Returns:
-            调度结果列表，每个结果包含：
-                - hardware: 分配的硬件类型
-                - input_tokens: 输入 token 数
-                - output_tokens: 输出 token 数
-                - task: 原始任务
+            调度后的任务列表，每个任务包含以下字段：
+                - tokens: 令牌数量
+                - model: 分配的模型
+                - hardware: 分配的硬件
         """
-        results = []
+        if not self.initialized:
+            raise RuntimeError("调度器未初始化")
+        if not tasks:
+            return []
+
+        scheduled_tasks = []
         for task in tasks:
-            input_tokens = task.get("input_tokens", 0)
-            output_tokens = task.get("output_tokens", 0)
-            
-            # 根据输入 token 数确定硬件
-            if input_tokens <= self.config["thresholds"]["T_in"]:
-                hardware = self.config["hardware_map"]["small"]
-            elif input_tokens <= self.config["thresholds"]["T_in"] * 2:
-                hardware = self.config["hardware_map"]["medium"]
+            if not isinstance(task, dict):
+                raise ValueError("任务必须是字典类型")
+                
+            tokens = task.get("tokens", 0)
+            if tokens <= self.token_threshold:
+                model = "tinyllama"
+                hardware = "apple_m1_pro"
             else:
-                hardware = self.config["hardware_map"]["large"]
+                model = "llama3"
+                hardware = "rtx4050"
             
-            results.append({
-                "hardware": hardware,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "task": task
+            scheduled_tasks.append({
+                "tokens": tokens,
+                "model": model,
+                "hardware": hardware
             })
-            
-        return results
-    
+
+        return scheduled_tasks
+
     def cleanup(self) -> None:
-        """
-        清理资源。
-        """
-        pass
+        """清理资源。"""
+        self.initialized = False
+        logger.info("基于令牌的调度器清理完成")

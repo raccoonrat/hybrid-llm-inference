@@ -26,7 +26,7 @@ from src.benchmarking.system_benchmarking import SystemBenchmarking
 from src.benchmarking.report_generator import ReportGenerator
 from src.toolbox.config_manager import ConfigManager
 from src.system_integration.pipeline import SystemPipeline
-from src.hybrid_inference import HybridInference
+from src.model_inference.hybrid_inference import HybridInference
 from src.scheduling.task_scheduler import TaskScheduler
 from src.model_zoo.mistral import LocalMistral
 from src.hardware_profiling import get_profiler
@@ -107,8 +107,8 @@ def mock_distribution(tmp_path):
         pickle.dump(dist, f)
     return dist_path
 
-def test_full_system_pipeline(mock_data, mock_distribution, tmp_path):
-    """Test system integration"""
+def test_system_pipeline_with_mock_data(mock_data, mock_distribution, tmp_path):
+    """Test system integration with mock data"""
     # 设置测试模式环境变量
     os.environ['TEST_MODE'] = '1'
     
@@ -130,7 +130,8 @@ def test_full_system_pipeline(mock_data, mock_distribution, tmp_path):
     assert results["energy"] >= 0
     assert results["runtime"] >= 0
 
-def test_full_system_pipeline(mock_dataset, mock_configs, mock_distribution, tmp_dir, monkeypatch):
+def test_system_pipeline_with_configs(mock_dataset, mock_configs, mock_distribution, tmp_dir, monkeypatch):
+    """Test system integration with configs"""
     # Mock dependencies
     def mock_measure(task, input_tokens, output_tokens):
         return {
@@ -140,7 +141,7 @@ def test_full_system_pipeline(mock_dataset, mock_configs, mock_distribution, tmp
             "energy_per_token": 0.01
         }
     
-    monkeypatch.setattr("hardware_profiling.rtx4050_profiler.RTX4050Profiler.measure", mock_measure)
+    monkeypatch.setattr("src.hardware_profiling.rtx4050_profiler.RTX4050Profiler.measure", mock_measure)
     
     # Initialize pipeline
     pipeline = SystemPipeline(
@@ -216,7 +217,11 @@ def test_system_integration(config_dir, mock_data):
         }
         scheduler = TaskScheduler(scheduler_config)
         
-        hybrid_inference = HybridInference(model, scheduler)
+        hybrid_inference = HybridInference([{
+            "name": "mistral",
+            "size": "7B",
+            "precision": "float16"
+        }])
         
         # 加载测试数据
         with open(mock_data) as f:
@@ -224,9 +229,14 @@ def test_system_integration(config_dir, mock_data):
         
         # 执行推理
         for item in test_data:
-            result = hybrid_inference.infer(item["prompt"])
-            assert isinstance(result, str)
-            assert len(result) > 0
+            result = hybrid_inference.infer({
+                "input": item["prompt"],
+                "max_tokens": 100
+            })
+            assert isinstance(result, dict)
+            assert "output" in result
+            assert "metrics" in result
+            assert "model_name" in result
             
     finally:
         # 清理资源
@@ -234,3 +244,4 @@ def test_system_integration(config_dir, mock_data):
             del os.environ["TEST_MODE"]
         model.cleanup()
         scheduler.cleanup()
+        hybrid_inference.cleanup()

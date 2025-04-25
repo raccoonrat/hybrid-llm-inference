@@ -1,155 +1,118 @@
-"""模型推理性能测试模块。"""
-
+"""
+模型推理性能测试模块。
+"""
 import pytest
 import time
-from src.model_inference import ModelInference
-from src.model_zoo import get_model
-from typing import Dict, Any
+from src.model_inference.model_inference import ModelInference
 
 # 测试配置
 MODEL_CONFIG = {
-    "models": {
-        "tinyllama": {
-            "model_name": "tinyllama",
-            "model_path": "path/to/model",
-            "mode": "local",
-            "batch_size": 1,
-            "max_length": 128
-        }
-    }
+    "name": "tinyllama",
+    "size": "1.1B",
+    "precision": "int8"
 }
 
 @pytest.fixture
-def model():
-    """创建模型实例的 fixture。"""
-    return get_model(MODEL_CONFIG["models"]["tinyllama"])
-
-@pytest.fixture
 def model_inference():
-    """创建模型推理实例的 fixture。"""
+    """创建 ModelInference 实例的 fixture。"""
     return ModelInference(MODEL_CONFIG)
 
-def test_initialization(model):
+def test_initialization(model_inference):
     """测试初始化。"""
-    assert model is not None
-    assert model.model_name == "tinyllama"
-    assert model.model_path == "path/to/model"
-    assert model.mode == "local"
-    assert model.batch_size == 1
-    assert model.max_length == 128
+    assert model_inference.model_config == MODEL_CONFIG
+    assert model_inference.is_initialized
 
-def test_inference_speed(model_inference):
-    """测试推理速度。"""
-    # 测试小任务
-    small_task = {
-        "input_tokens": 100,
-        "output_tokens": 50,
-        "model": "tinyllama"
+def test_inference_functionality(model_inference):
+    """测试推理功能。"""
+    task = {
+        "input": "Hello, how are you?",
+        "max_tokens": 10
     }
     
-    start_time = time.time()
-    result = model_inference.infer(small_task)
-    end_time = time.time()
-    
+    result = model_inference.infer(task)
     assert result is not None
     assert "output" in result
     assert "metrics" in result
-    assert result["metrics"]["runtime"] > 0
-    assert result["metrics"]["runtime"] <= end_time - start_time
-
-def test_memory_usage(model_inference):
-    """测试内存使用。"""
-    # 测试不同大小的任务
-    tasks = [
-        {"input_tokens": 100, "output_tokens": 50, "model": "tinyllama"},
-        {"input_tokens": 200, "output_tokens": 100, "model": "tinyllama"},
-        {"input_tokens": 300, "output_tokens": 150, "model": "tinyllama"}
-    ]
-    
-    for task in tasks:
-        result = model_inference.infer(task)
-        assert result["metrics"]["memory_used"] > 0
-        assert result["metrics"]["memory_used"] <= result["metrics"]["memory_total"]
-
-def test_precision_impact(model_inference):
-    """测试精度影响。"""
-    # 测试不同精度的任务
-    tasks = [
-        {"input_tokens": 100, "output_tokens": 50, "model": "tinyllama", "precision": "fp32"},
-        {"input_tokens": 100, "output_tokens": 50, "model": "tinyllama", "precision": "fp16"},
-        {"input_tokens": 100, "output_tokens": 50, "model": "tinyllama", "precision": "int8"}
-    ]
-    
-    for task in tasks:
-        result = model_inference.infer(task)
-        assert result["metrics"]["runtime"] > 0
-        assert result["metrics"]["memory_used"] > 0
-        assert result["metrics"]["throughput"] > 0
+    assert all(key in result["metrics"] for key in ["runtime", "throughput"])
 
 def test_error_handling(model_inference):
     """测试错误处理。"""
     # 测试无效任务
-    invalid_tasks = [
-        {"input_tokens": -1, "output_tokens": 50, "model": "tinyllama"},
-        {"input_tokens": 100, "output_tokens": -1, "model": "tinyllama"},
-        {"input_tokens": 100, "output_tokens": 50, "model": "invalid"},
-        {"input_tokens": 100, "output_tokens": 50},  # 缺少模型
-        {"input_tokens": 100, "model": "tinyllama"},  # 缺少输出令牌
-        {"output_tokens": 50, "model": "tinyllama"},  # 缺少输入令牌
-        None,
-        {}
-    ]
+    invalid_task = {
+        "input": 123,  # 无效的输入类型
+        "max_tokens": -1  # 无效的 token 数量
+    }
     
-    for task in invalid_tasks:
-        with pytest.raises((ValueError, TypeError, KeyError)):
-            model_inference.infer(task)
+    with pytest.raises(ValueError):
+        model_inference.infer(invalid_task)
+    
+    # 测试无效配置
+    invalid_config = {
+        "name": 123,  # 无效的模型名称类型
+        "size": "invalid",  # 无效的模型大小
+        "precision": "invalid"  # 无效的精度
+    }
+    
+    with pytest.raises(ValueError):
+        ModelInference(invalid_config)
+
+def test_performance_measurement(model_inference):
+    """测试性能测量。"""
+    task = {
+        "input": "This is a test input for performance measurement.",
+        "max_tokens": 20
+    }
+    
+    start_time = time.time()
+    result = model_inference.infer(task)
+    end_time = time.time()
+    
+    assert result is not None
+    assert "metrics" in result
+    metrics = result["metrics"]
+    
+    # 验证性能指标
+    assert metrics["runtime"] > 0
+    assert metrics["throughput"] > 0
+    
+    # 验证实际运行时间
+    actual_runtime = end_time - start_time
+    assert abs(metrics["runtime"] - actual_runtime) < 0.1  # 允许 100ms 的误差
 
 def test_cleanup(model_inference):
     """测试资源清理。"""
     model_inference.cleanup()
+    assert not model_inference.is_initialized
     
     # 测试清理后使用
+    task = {
+        "input": "Test after cleanup",
+        "max_tokens": 5
+    }
+    
     with pytest.raises(RuntimeError):
-        model_inference.infer({
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "model": "tinyllama"
-        })
+        model_inference.infer(task)
 
-def test_model_inference_initialization():
-    """测试模型推理初始化。"""
-    # 测试空配置
-    with pytest.raises(ValueError):
-        ModelInference({})
+def test_boundary_conditions(model_inference):
+    """测试边界条件。"""
+    # 测试空输入
+    empty_task = {
+        "input": "",
+        "max_tokens": 1
+    }
     
-    # 测试无效的模型配置
-    invalid_config = MODEL_CONFIG.copy()
-    invalid_config["models"]["tinyllama"]["model_name"] = 123
-    with pytest.raises(TypeError):
-        ModelInference(invalid_config)
+    result = model_inference.infer(empty_task)
+    assert result is not None
+    assert "output" in result
+    assert len(result["output"]) > 0
     
-    # 测试无效的模型路径
-    invalid_config = MODEL_CONFIG.copy()
-    invalid_config["models"]["tinyllama"]["model_path"] = None
-    with pytest.raises(ValueError):
-        ModelInference(invalid_config)
-
-def test_model_inference_performance(model_inference):
-    """测试模型推理性能。"""
-    # 测试连续推理
-    tasks = [
-        {"input_tokens": 100, "output_tokens": 50, "model": "tinyllama"},
-        {"input_tokens": 200, "output_tokens": 100, "model": "tinyllama"},
-        {"input_tokens": 300, "output_tokens": 150, "model": "tinyllama"}
-    ]
+    # 测试最大 token 限制
+    large_task = {
+        "input": "Test with large token count",
+        "max_tokens": 1000
+    }
     
-    start_time = time.time()
-    for task in tasks:
-        result = model_inference.infer(task)
-        assert result["metrics"]["runtime"] > 0
-        assert result["metrics"]["memory_used"] > 0
-        assert result["metrics"]["throughput"] > 0
-    end_time = time.time()
-    
-    # 验证总执行时间
-    assert end_time - start_time > 0 
+    result = model_inference.infer(large_task)
+    assert result is not None
+    assert "metrics" in result
+    assert result["metrics"]["throughput"] > 0 

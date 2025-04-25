@@ -2,15 +2,15 @@
 import pytest
 import pandas as pd
 from pathlib import Path
-from hardware_profiling import get_profiler
-from hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from hardware_profiling.a800_profiling import A800Profiler
-from hardware_profiling.a100_profiler import A100Profiler
-from hardware_profiling.m1_pro_profiler import M1ProProfiler
-from hardware_profiling.base_profiler import HardwareProfiler
-from benchmarking.system_benchmarking import SystemBenchmarking
-from benchmarking.model_benchmarking import ModelBenchmarking
-from toolbox.logger import get_logger
+from src.hardware_profiling import get_profiler
+from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from src.hardware_profiling.a800_profiling import A800Profiler
+from src.hardware_profiling.a100_profiler import A100Profiler
+from src.hardware_profiling.m1_pro_profiler import M1ProProfiler
+from src.hardware_profiling.base_profiler import HardwareProfiler
+from src.benchmarking.system_benchmarking import SystemBenchmarking
+from src.benchmarking.model_benchmarking import ModelBenchmarking
+from src.toolbox.logger import get_logger
 import pynvml
 import os
 

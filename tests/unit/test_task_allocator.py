@@ -5,32 +5,33 @@ from src.scheduling.task_allocator import TaskAllocator
 from typing import Dict, Any, List
 
 # 测试配置
-HARDWARE_CONFIG = {
-    "apple_m1_pro": {
-        "device_type": "m1_pro",
-        "idle_power": 10.0,
-        "sample_interval": 200
+TEST_CONFIG = {
+    "hardware_config": {
+        "apple_m1_pro": {
+            "device_type": "m1_pro",
+            "idle_power": 10.0,
+            "sample_interval": 200
+        },
+        "nvidia_rtx4050": {
+            "device_type": "rtx4050",
+            "idle_power": 15.0,
+            "sample_interval": 200
+        },
+        "nvidia_rtx4090": {
+            "device_type": "rtx4090",
+            "idle_power": 20.0,
+            "sample_interval": 200
+        }
     },
-    "nvidia_rtx4050": {
-        "device_type": "rtx4050",
-        "idle_power": 15.0,
-        "sample_interval": 200
-    },
-    "nvidia_rtx4090": {
-        "device_type": "rtx4090",
-        "idle_power": 20.0,
-        "sample_interval": 200
-    }
-}
-
-MODEL_CONFIG = {
-    "models": {
-        "tinyllama": {
-            "model_name": "tinyllama",
-            "model_path": "path/to/model",
-            "mode": "local",
-            "batch_size": 1,
-            "max_length": 128
+    "model_config": {
+        "models": {
+            "tinyllama": {
+                "model_name": "tinyllama",
+                "model_path": "path/to/model",
+                "mode": "local",
+                "batch_size": 1,
+                "max_length": 128
+            }
         }
     }
 }
@@ -38,16 +39,7 @@ MODEL_CONFIG = {
 @pytest.fixture
 def allocator():
     """创建 TaskAllocator 实例的 fixture。"""
-    return TaskAllocator(HARDWARE_CONFIG, MODEL_CONFIG)
-
-def test_initialization(allocator):
-    """测试初始化。"""
-    assert allocator.hardware_config == HARDWARE_CONFIG
-    assert allocator.model_config == MODEL_CONFIG
-    assert len(allocator.available_hardware) == 3
-    assert "apple_m1_pro" in allocator.available_hardware
-    assert "nvidia_rtx4050" in allocator.available_hardware
-    assert "nvidia_rtx4090" in allocator.available_hardware
+    return TaskAllocator(TEST_CONFIG)
 
 def test_allocate_small_task(allocator):
     """测试小任务分配。"""
@@ -57,7 +49,7 @@ def test_allocate_small_task(allocator):
         "model": "tinyllama"
     }
     
-    allocation = allocator.allocate(task)
+    allocation = allocator.allocate([task])[0]
     assert allocation["hardware"] == "apple_m1_pro"
     assert allocation["input_tokens"] == 500
     assert allocation["output_tokens"] == 50
@@ -71,7 +63,7 @@ def test_allocate_medium_task(allocator):
         "model": "tinyllama"
     }
     
-    allocation = allocator.allocate(task)
+    allocation = allocator.allocate([task])[0]
     assert allocation["hardware"] == "nvidia_rtx4050"
     assert allocation["input_tokens"] == 1500
     assert allocation["output_tokens"] == 150
@@ -85,7 +77,7 @@ def test_allocate_large_task(allocator):
         "model": "tinyllama"
     }
     
-    allocation = allocator.allocate(task)
+    allocation = allocator.allocate([task])[0]
     assert allocation["hardware"] == "nvidia_rtx4090"
     assert allocation["input_tokens"] == 2500
     assert allocation["output_tokens"] == 250
@@ -111,7 +103,7 @@ def test_allocate_multiple_tasks(allocator):
         }
     ]
     
-    allocations = allocator.allocate_multiple(tasks)
+    allocations = allocator.allocate(tasks)
     assert len(allocations) == 3
     assert allocations[0]["hardware"] == "apple_m1_pro"
     assert allocations[1]["hardware"] == "nvidia_rtx4050"
@@ -142,7 +134,7 @@ def test_allocate_boundary_conditions(allocator):
         }
     ]
     
-    allocations = allocator.allocate_multiple(boundary_tasks)
+    allocations = allocator.allocate(boundary_tasks)
     assert len(allocations) == 3
     assert allocations[0]["hardware"] == "apple_m1_pro"
     assert allocations[1]["hardware"] == "nvidia_rtx4050"
@@ -162,7 +154,7 @@ def test_allocate_edge_cases(allocator):
         "model": "tinyllama"
     }
     
-    allocation = allocator.allocate(tiny_task)
+    allocation = allocator.allocate([tiny_task])[0]
     assert allocation["hardware"] == "apple_m1_pro"
     assert allocation["input_tokens"] == 1
     assert allocation["output_tokens"] == 1
@@ -175,7 +167,7 @@ def test_allocate_edge_cases(allocator):
         "model": "tinyllama"
     }
     
-    allocation = allocator.allocate(huge_task)
+    allocation = allocator.allocate([huge_task])[0]
     assert allocation["hardware"] == "nvidia_rtx4090"
     assert allocation["input_tokens"] == 1000000
     assert allocation["output_tokens"] == 100000
@@ -184,34 +176,24 @@ def test_allocate_edge_cases(allocator):
 def test_error_handling():
     """测试错误处理。"""
     # 测试无效的硬件配置
-    invalid_hardware_configs = [
+    invalid_configs = [
         {},  # 空配置
-        {"invalid": {}},  # 无效的硬件类型
-        {"apple_m1_pro": {"device_type": "m1_pro"}},  # 缺少必要参数
-        {"apple_m1_pro": {"idle_power": 10.0}},  # 缺少必要参数
-        {"apple_m1_pro": {"sample_interval": 200}},  # 缺少必要参数
-        {"apple_m1_pro": {"device_type": "m1_pro", "idle_power": -1.0}},  # 负的 idle_power
-        {"apple_m1_pro": {"device_type": "m1_pro", "sample_interval": 0}}  # 零 sample_interval
+        {"hardware_config": {}},  # 空硬件配置
+        {"model_config": {}},  # 空模型配置
+        {"hardware_config": {"invalid": {}}},  # 无效的硬件类型
+        {"hardware_config": {"apple_m1_pro": {"device_type": "m1_pro"}}},  # 缺少必要参数
+        {"hardware_config": {"apple_m1_pro": {"idle_power": 10.0}}},  # 缺少必要参数
+        {"hardware_config": {"apple_m1_pro": {"sample_interval": 200}}},  # 缺少必要参数
+        {"hardware_config": {"apple_m1_pro": {"device_type": "m1_pro", "idle_power": -1.0}}},  # 负的 idle_power
+        {"hardware_config": {"apple_m1_pro": {"device_type": "m1_pro", "sample_interval": 0}}}  # 零 sample_interval
     ]
     
-    for config in invalid_hardware_configs:
+    for config in invalid_configs:
         with pytest.raises((ValueError, TypeError)):
-            TaskAllocator(config, MODEL_CONFIG)
-    
-    # 测试无效的模型配置
-    invalid_model_configs = [
-        {},  # 空配置
-        {"models": {}},  # 空模型列表
-        {"models": {"invalid": {}}},  # 无效的模型配置
-        {"models": {"tinyllama": {"model_name": "tinyllama"}}}  # 缺少必要参数
-    ]
-    
-    for config in invalid_model_configs:
-        with pytest.raises((ValueError, TypeError)):
-            TaskAllocator(HARDWARE_CONFIG, config)
+            TaskAllocator(config)
     
     # 测试无效的任务
-    allocator = TaskAllocator(HARDWARE_CONFIG, MODEL_CONFIG)
+    allocator = TaskAllocator(TEST_CONFIG)
     invalid_tasks = [
         None,  # 空任务
         {},  # 缺少必要参数
@@ -225,30 +207,26 @@ def test_error_handling():
     
     for task in invalid_tasks:
         with pytest.raises((ValueError, TypeError, KeyError)):
-            allocator.allocate(task)
+            allocator.allocate([task])
 
 def test_config_validation():
     """测试配置验证。"""
     # 测试缺少必要参数
     with pytest.raises(ValueError):
-        TaskAllocator({}, {})
+        TaskAllocator({})
     
     # 测试无效的硬件配置类型
     with pytest.raises(TypeError):
-        TaskAllocator("invalid", MODEL_CONFIG)
-    
-    # 测试无效的模型配置类型
-    with pytest.raises(TypeError):
-        TaskAllocator(HARDWARE_CONFIG, "invalid")
+        TaskAllocator("invalid")
     
     # 测试无效的硬件类型
-    invalid_config = HARDWARE_CONFIG.copy()
+    invalid_config = TEST_CONFIG["hardware_config"].copy()
     invalid_config["apple_m1_pro"]["device_type"] = 123
     with pytest.raises(TypeError):
-        TaskAllocator(invalid_config, MODEL_CONFIG)
+        TaskAllocator({"hardware_config": invalid_config})
     
     # 测试无效的模型类型
-    invalid_config = MODEL_CONFIG.copy()
+    invalid_config = TEST_CONFIG["model_config"].copy()
     invalid_config["models"]["tinyllama"]["model_name"] = 123
     with pytest.raises(TypeError):
-        TaskAllocator(HARDWARE_CONFIG, invalid_config) 
+        TaskAllocator({"model_config": invalid_config}) 

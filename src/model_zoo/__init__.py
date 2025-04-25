@@ -1,11 +1,11 @@
 # hybrid-llm-inference/src/model_zoo/__init__.py
-"""模型动物园模块。"""
+"""模型库模块。"""
 
 import logging
 from typing import Dict, Any, Optional
 
 from .base_model import BaseModel
-from .tinyllama import LocalTinyLlama
+from .tinyllama import TinyLlama
 from .falcon import FalconModel
 from .mistral import LocalMistral, APIMistral
 from .llama3 import LocalLlama3, APILlama3
@@ -18,10 +18,12 @@ def get_model(config: Dict[str, Any]) -> BaseModel:
     Args:
         config: 配置字典，必须包含：
             - model_name: 模型名称
-            - model_path: 模型路径
+            - model_path: 模型路径（本地模式）或模型 ID（远程模式）
             - mode: 运行模式（"local" 或 "remote"）
             - batch_size: 批处理大小
             - max_length: 最大长度
+            - device: 运行设备（可选，默认为 "auto"）
+            - dtype: 数据类型（可选，默认为 "auto"）
             
     Returns:
         BaseModel: 模型实例
@@ -40,10 +42,7 @@ def get_model(config: Dict[str, Any]) -> BaseModel:
     mode = config["mode"].lower()
     
     if model_name == "tinyllama":
-        if mode == "local":
-            return LocalTinyLlama(config)
-        else:
-            raise ValueError("TinyLlama 只支持本地模式")
+        return TinyLlama(config)
             
     elif model_name == "falcon":
         if mode == "local":
@@ -69,3 +68,5 @@ def get_model(config: Dict[str, Any]) -> BaseModel:
             
     else:
         raise ValueError(f"不支持的模型: {model_name}")
+
+__all__ = ["BaseModel", "TinyLlama", "get_model"]

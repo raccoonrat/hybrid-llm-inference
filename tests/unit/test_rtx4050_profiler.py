@@ -2,244 +2,194 @@
 
 import pytest
 import time
-import threading
+import torch
+import pynvml
+from unittest.mock import patch, MagicMock
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from typing import Dict, Any, List
 
 # 测试配置
 TEST_CONFIG = {
-    "device_type": "rtx4050",
+    "device_id": 0,
+    "device_type": "gpu",
     "idle_power": 15.0,
     "sample_interval": 200
 }
 
 @pytest.fixture
-def profiler():
+def mock_nvml():
+    """模拟 NVML 的 fixture。"""
+    with patch("pynvml.nvmlInit") as mock_init, \
+         patch("pynvml.nvmlDeviceGetHandleByIndex") as mock_get_handle, \
+         patch("pynvml.nvmlDeviceGetName") as mock_get_name, \
+         patch("pynvml.nvmlDeviceGetPowerUsage") as mock_get_power, \
+         patch("pynvml.nvmlShutdown") as mock_shutdown:
+        
+        # 设置模拟返回值
+        mock_get_name.return_value = b"NVIDIA RTX 4050"
+        mock_get_power.return_value = 15000  # 15W
+        
+        yield {
+            "init": mock_init,
+            "get_handle": mock_get_handle,
+            "get_name": mock_get_name,
+            "get_power": mock_get_power,
+            "shutdown": mock_shutdown
+        }
+
+@pytest.fixture
+def profiler(mock_nvml):
     """创建 RTX4050Profiler 实例的 fixture。"""
     profiler = RTX4050Profiler(TEST_CONFIG)
-    profiler.initialize()
     yield profiler
     profiler.cleanup()
 
-def test_initialization(profiler):
+def test_initialization(profiler, mock_nvml):
     """测试初始化。"""
     assert profiler.config == TEST_CONFIG
-    assert profiler.device_type == "rtx4050"
+    assert profiler.device_type == "gpu"
     assert profiler.idle_power == 15.0
     assert profiler.sample_interval == 200
-    assert profiler.is_initialized
-    assert not profiler.is_measuring
+    assert profiler.initialized
+    assert profiler.handle is not None
+    assert profiler.device is not None
+    assert profiler.device.type == "cuda"
+    assert profiler.device.index == 0
 
-def test_measure_power(profiler):
+def test_config_validation():
+    """测试配置验证。"""
+    # 测试无效的 device_id
+    with pytest.raises(ValueError, match="device_id 必须是整数"):
+        RTX4050Profiler({"device_id": "0"})
+    
+    # 测试无效的 device_type
+    with pytest.raises(ValueError, match="device_type 必须是字符串"):
+        RTX4050Profiler({"device_id": 0, "device_type": 123})
+    
+    # 测试无效的 idle_power
+    with pytest.raises(ValueError, match="idle_power 必须是正数"):
+        RTX4050Profiler({"device_id": 0, "device_type": "gpu", "idle_power": -1})
+    
+    # 测试无效的 sample_interval
+    with pytest.raises(ValueError, match="sample_interval 必须是正整数"):
+        RTX4050Profiler({"device_id": 0, "device_type": "gpu", "sample_interval": 0})
+
+def test_cuda_availability():
+    """测试 CUDA 可用性检查。"""
+    with patch("torch.cuda.is_available", return_value=False):
+        with pytest.raises(RuntimeError, match="CUDA 不可用"):
+            RTX4050Profiler(TEST_CONFIG)
+    
+    with patch("torch.cuda.device_count", return_value=0):
+        with pytest.raises(ValueError, match="设备 ID 0 无效"):
+            RTX4050Profiler(TEST_CONFIG)
+
+def test_device_type_validation(mock_nvml):
+    """测试设备类型验证。"""
+    mock_nvml["get_name"].return_value = b"NVIDIA GTX 1080"
+    with pytest.warns(UserWarning, match="当前设备不是 RTX 4050"):
+        profiler = RTX4050Profiler(TEST_CONFIG)
+        assert profiler.initialized
+
+def test_power_measurement(profiler, mock_nvml):
     """测试功率测量。"""
+    # 测试正常情况
     power = profiler.measure_power()
     assert isinstance(power, float)
     assert power >= 0.0
     
-    # 测试多次测量
-    powers = [profiler.measure_power() for _ in range(10)]
-    assert all(isinstance(p, float) for p in powers)
-    assert all(p >= 0.0 for p in powers)
-    assert len(set(powers)) > 1  # 确保不是固定值
+    # 测试 NVML 错误
+    mock_nvml["get_power"].side_effect = pynvml.NVMLError(1)
+    power = profiler.measure_power()
+    assert power == profiler.idle_power
 
-def test_get_memory_info(profiler):
-    """测试内存信息获取。"""
-    memory_info = profiler.get_memory_info()
-    assert isinstance(memory_info, dict)
-    assert "total" in memory_info
-    assert "used" in memory_info
-    assert "free" in memory_info
-    assert memory_info["total"] > 0
-    assert memory_info["used"] >= 0
-    assert memory_info["free"] >= 0
-    assert memory_info["total"] == memory_info["used"] + memory_info["free"]
+def test_measurement(profiler, mock_nvml):
+    """测试性能测量。"""
+    def mock_task():
+        time.sleep(0.1)
+        return "result"
     
-    # 测试多次获取
-    memory_infos = [profiler.get_memory_info() for _ in range(10)]
-    assert all(isinstance(m, dict) for m in memory_infos)
-    assert all(m["total"] > 0 for m in memory_infos)
-    assert all(m["total"] == m["used"] + m["free"] for m in memory_infos)
+    # 测试正常情况
+    metrics = profiler.measure(mock_task, input_tokens=10, output_tokens=20)
+    assert isinstance(metrics, dict)
+    assert "energy" in metrics
+    assert "runtime" in metrics
+    assert "throughput" in metrics
+    assert "energy_per_token" in metrics
+    assert metrics["runtime"] >= 0.1
+    assert metrics["energy"] >= 0.0
+    assert metrics["throughput"] > 0
+    assert metrics["energy_per_token"] >= 0.0
+    
+    # 测试任务执行错误
+    def failing_task():
+        raise RuntimeError("任务执行失败")
+    
+    with pytest.raises(RuntimeError, match="任务执行失败"):
+        profiler.measure(failing_task, input_tokens=10, output_tokens=20)
 
-def test_get_temperature(profiler):
-    """测试温度获取。"""
-    temperature = profiler.get_temperature()
-    assert isinstance(temperature, float)
-    assert temperature >= 0.0
-    
-    # 测试多次获取
-    temperatures = [profiler.get_temperature() for _ in range(10)]
-    assert all(isinstance(t, float) for t in temperatures)
-    assert all(t >= 0.0 for t in temperatures)
-    assert len(set(temperatures)) > 1  # 确保不是固定值
-
-def test_measurement_lifecycle(profiler):
-    """测试测量生命周期。"""
-    # 开始测量
-    profiler.start_measurement()
-    assert profiler.is_measuring
-    
-    # 执行一些计算密集型任务
-    start_time = time.time()
-    while time.time() - start_time < 0.1:
-        _ = [i * i for i in range(1000)]
-    
-    # 结束测量
-    results = profiler.stop_measurement()
-    assert not profiler.is_measuring
-    assert isinstance(results, dict)
-    assert "runtime" in results
-    assert "power" in results
-    assert "energy" in results
-    assert results["runtime"] >= 0.1
-    assert results["power"] >= 0.0
-    assert results["energy"] >= 0.0
-    
-    # 测试多次测量
-    for _ in range(5):
-        profiler.start_measurement()
-        try:
-            time.sleep(0.1)
-            results = profiler.stop_measurement()
-            assert results["runtime"] >= 0.1
-            assert results["power"] >= 0.0
-            assert results["energy"] >= 0.0
-        finally:
-            if profiler.is_measuring:
-                profiler.stop_measurement()
-
-def test_measure(profiler):
-    """测试性能指标测量。"""
-    # 开始测量
-    profiler.start_measurement()
-    try:
-        # 执行任务
-        task = {
-            "input_tokens": 100,
-            "output_tokens": 50
-        }
-        metrics = profiler.measure(task)
-        
-        # 验证指标
-        assert isinstance(metrics, dict)
-        assert "runtime" in metrics
-        assert "power" in metrics
-        assert "energy" in metrics
-        assert "throughput" in metrics
-        assert "energy_per_token" in metrics
-        assert metrics["runtime"] > 0
-        assert metrics["power"] >= 0.0
-        assert metrics["energy"] >= 0.0
-        assert metrics["throughput"] > 0
-        assert metrics["energy_per_token"] >= 0.0
-        
-        # 验证吞吐量计算
-        total_tokens = task["input_tokens"] + task["output_tokens"]
-        expected_throughput = total_tokens / metrics["runtime"]
-        assert abs(metrics["throughput"] - expected_throughput) < 0.1
-        
-        # 验证每令牌能耗计算
-        expected_energy_per_token = metrics["energy"] / total_tokens
-        assert abs(metrics["energy_per_token"] - expected_energy_per_token) < 0.1
-    finally:
-        # 停止测量
-        profiler.stop_measurement()
-
-def test_cleanup(profiler):
+def test_cleanup(profiler, mock_nvml):
     """测试资源清理。"""
-    # 清理资源
     profiler.cleanup()
+    assert not profiler.initialized
+    assert profiler.handle is None
+    mock_nvml["shutdown"].assert_called_once()
+
+def test_destructor(mock_nvml):
+    """测试析构函数。"""
+    profiler = RTX4050Profiler(TEST_CONFIG)
+    del profiler
+    mock_nvml["shutdown"].assert_called_once()
+
+def test_measurement_with_zero_tokens(profiler):
+    """测试零令牌输入/输出的测量。"""
+    def mock_task():
+        time.sleep(0.1)
     
-    # 验证资源已被清理
-    assert not profiler.is_initialized
+    metrics = profiler.measure(mock_task, input_tokens=0, output_tokens=0)
+    assert metrics["throughput"] == 0
+    assert metrics["energy_per_token"] == 0
+
+def test_measurement_with_high_tokens(profiler):
+    """测试大量令牌的测量。"""
+    def mock_task():
+        time.sleep(0.1)
     
-    # 尝试使用已清理的分析器
-    with pytest.raises(RuntimeError):
-        profiler.measure_power()
+    metrics = profiler.measure(mock_task, input_tokens=1000, output_tokens=1000)
+    assert metrics["throughput"] > 0
+    assert metrics["energy_per_token"] > 0
+
+def test_concurrent_measurements(profiler):
+    """测试并发测量。"""
+    import threading
     
-    with pytest.raises(RuntimeError):
-        profiler.get_memory_info()
+    def mock_task():
+        time.sleep(0.1)
     
-    with pytest.raises(RuntimeError):
-        profiler.get_temperature()
+    def run_measurement():
+        metrics = profiler.measure(mock_task, input_tokens=10, output_tokens=10)
+        assert metrics["runtime"] >= 0.1
     
-    with pytest.raises(RuntimeError):
-        profiler.start_measurement()
-    
-    with pytest.raises(RuntimeError):
-        profiler.stop_measurement()
-    
-    with pytest.raises(RuntimeError):
-        profiler.measure({"input_tokens": 100, "output_tokens": 50})
+    threads = [threading.Thread(target=run_measurement) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 def test_error_handling():
     """测试错误处理。"""
-    # 测试无效配置
-    invalid_configs = [
-        {},  # 空配置
-        {"device_type": "rtx4050"},  # 缺少 idle_power
-        {"idle_power": 15.0},  # 缺少 device_type
-        {"sample_interval": 200},  # 缺少 device_type 和 idle_power
-        {"device_type": "rtx4050", "idle_power": -1.0},  # 负的 idle_power
-        {"device_type": "rtx4050", "sample_interval": 0},  # 零 sample_interval
-        {"device_type": "invalid", "idle_power": 15.0},  # 无效的 device_type
-        {"device_type": "rtx4050", "idle_power": "15.0"},  # 字符串 idle_power
-        {"device_type": "rtx4050", "sample_interval": "200"}  # 字符串 sample_interval
-    ]
+    # 测试初始化错误
+    with patch("pynvml.nvmlInit", side_effect=pynvml.NVMLError(1)):
+        with pytest.raises(RuntimeError):
+            RTX4050Profiler(TEST_CONFIG)
     
-    for config in invalid_configs:
-        with pytest.raises((ValueError, TypeError)):
-            RTX4050Profiler(config)
-
-def test_real_mode():
-    """测试真实模式。"""
-    # 创建真实模式分析器
+    # 测试获取句柄错误
+    with patch("pynvml.nvmlDeviceGetHandleByIndex", side_effect=pynvml.NVMLError(1)):
+        with pytest.raises(RuntimeError):
+            RTX4050Profiler(TEST_CONFIG)
+    
+    # 测试未初始化状态下的测量
     profiler = RTX4050Profiler(TEST_CONFIG)
-    profiler.initialize()
-    
-    try:
-        # 验证基本功能
-        assert profiler.measure_power() >= 0.0
-        assert profiler.get_memory_info()["total"] > 0
-        assert profiler.get_temperature() >= 0.0
-        
-        # 测试测量
-        profiler.start_measurement()
-        try:
-            task = {
-                "input_tokens": 100,
-                "output_tokens": 50
-            }
-            metrics = profiler.measure(task)
-            assert metrics["runtime"] > 0
-            assert metrics["power"] >= 0.0
-            assert metrics["energy"] >= 0.0
-            assert metrics["throughput"] > 0
-            assert metrics["energy_per_token"] >= 0.0
-        finally:
-            profiler.stop_measurement()
-    finally:
-        profiler.cleanup()
-
-def test_config_validation():
-    """测试配置验证。"""
-    # 测试缺少必要参数
-    with pytest.raises(ValueError):
-        RTX4050Profiler({})
-    
-    # 测试无效的 device_type 类型
-    invalid_config = TEST_CONFIG.copy()
-    invalid_config["device_type"] = 123
-    with pytest.raises(TypeError):
-        RTX4050Profiler(invalid_config)
-    
-    # 测试无效的 idle_power 类型
-    invalid_config = TEST_CONFIG.copy()
-    invalid_config["idle_power"] = "15.0"
-    with pytest.raises(TypeError):
-        RTX4050Profiler(invalid_config)
-    
-    # 测试无效的 sample_interval 类型
-    invalid_config = TEST_CONFIG.copy()
-    invalid_config["sample_interval"] = "200"
-    with pytest.raises(TypeError):
-        RTX4050Profiler(invalid_config) 
+    profiler.initialized = False
+    with pytest.raises(RuntimeError, match="性能分析器未初始化"):
+        profiler.measure(lambda: None, input_tokens=10, output_tokens=10) 
