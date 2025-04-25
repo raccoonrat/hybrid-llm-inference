@@ -7,6 +7,7 @@ import numpy as np
 from pathlib import Path
 import sys
 from typing import Dict, Any, List
+import re
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent.parent
@@ -98,23 +99,23 @@ def output_dir(tmp_path):
     return tmp_path / "output"
 
 @pytest.fixture
-def system_benchmarking(hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> TestSystemBenchmarking:
+def system_benchmarking(mock_dataset: str, hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> TestSystemBenchmarking:
     """创建系统基准测试实例"""
     config = {
         "hardware_config": hardware_config,
         "model_config": model_config,
-        "dataset_path": "mock_dataset.csv",
+        "dataset_path": mock_dataset,
         "output_dir": "mock_output"
     }
     return TestSystemBenchmarking(config)
 
 @pytest.fixture
-def model_benchmarking(hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> TestModelBenchmarking:
+def model_benchmarking(mock_dataset: str, hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> TestModelBenchmarking:
     """创建模型基准测试实例"""
     config = {
         "hardware_config": hardware_config,
         "model_config": model_config,
-        "dataset_path": "mock_dataset.csv",
+        "dataset_path": mock_dataset,
         "output_dir": "mock_output"
     }
     return TestModelBenchmarking(config)
@@ -152,12 +153,12 @@ def test_model_benchmarking_run_benchmark(model_benchmarking: TestModelBenchmark
     tasks = ["测试任务1", "测试任务2"]
     result = model_benchmarking.run_benchmarks()
     assert result is not None
-    assert "mock_model" in result
-    assert "energy" in result["mock_model"]
-    assert "runtime" in result["mock_model"]
-    assert "throughput" in result["mock_model"]
-    assert "energy_per_token" in result["mock_model"]
-    assert "total_tasks" in result["mock_model"]
+    assert "metrics" in result
+    assert "summary" in result
+    assert "avg_energy" in result["summary"]
+    assert "avg_runtime" in result["summary"]
+    assert "avg_throughput" in result["summary"]
+    assert "avg_energy_per_token" in result["summary"]
 
 def test_model_benchmarking_cleanup(model_benchmarking: TestModelBenchmarking):
     """测试模型基准测试清理"""
@@ -230,7 +231,10 @@ def test_system_benchmarking_large_sample_size(mock_dataset, hardware_config, mo
     assert results["total_tasks"] > 0
 
 def test_system_benchmarking_empty_dataset(tmp_path, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
-    """Test system benchmarking with an empty dataset."""
+    """测试空数据集系统基准测试"""
+    # 创建临时目录
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    # 创建空JSON文件
     empty_file = tmp_path / "empty.json"
     empty_file.write_text("[]")
     
@@ -246,11 +250,64 @@ def test_system_benchmarking_empty_dataset(tmp_path, hardware_config, model_conf
         "scheduler_config": scheduler_config,
         "output_dir": str(output_dir)
     }
-    benchmarker = TestSystemBenchmarking(config)
-    thresholds = {"T_in": 32, "T_out": 32}
     
-    with pytest.raises(ValueError, match="Dataset is empty"):
-        benchmarker.run_benchmarks(thresholds, model_name="mock_model", sample_size=3)
+    with pytest.raises(ValueError, match=re.escape(f"数据集 {str(empty_file)} 为空")):
+        TestSystemBenchmarking(config)
+
+def test_system_benchmarking_invalid_json(tmp_path, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
+    """测试无效JSON格式数据集"""
+    # 创建临时目录
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    # 创建无效JSON文件
+    invalid_file = tmp_path / "invalid.json"
+    invalid_file.write_text("{invalid json}")
+    
+    config = {
+        "dataset_path": str(invalid_file),
+        "hardware_config": hardware_config,
+        "model_config": model_config,
+        "scheduler_config": scheduler_config,
+        "output_dir": str(output_dir)
+    }
+    
+    with pytest.raises(ValueError, match=re.escape(f"数据集 {str(invalid_file)} 不是有效的JSON格式")):
+        TestSystemBenchmarking(config)
+
+def test_system_benchmarking_nonexistent_file(tmp_path, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
+    """测试不存在的数据集文件"""
+    # 创建临时目录但不创建文件
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    nonexistent_file = tmp_path / "nonexistent.json"
+    
+    config = {
+        "dataset_path": str(nonexistent_file),
+        "hardware_config": hardware_config,
+        "model_config": model_config,
+        "scheduler_config": scheduler_config,
+        "output_dir": str(output_dir)
+    }
+    
+    with pytest.raises(ValueError, match=re.escape(f"数据集文件 {str(nonexistent_file)} 不存在")):
+        TestSystemBenchmarking(config)
+
+def test_system_benchmarking_invalid_format(tmp_path, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
+    """测试非数组格式数据集"""
+    # 创建临时目录
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    # 创建非数组格式JSON文件
+    invalid_format_file = tmp_path / "invalid_format.json"
+    invalid_format_file.write_text('{"key": "value"}')
+    
+    config = {
+        "dataset_path": str(invalid_format_file),
+        "hardware_config": hardware_config,
+        "model_config": model_config,
+        "scheduler_config": scheduler_config,
+        "output_dir": str(output_dir)
+    }
+    
+    with pytest.raises(ValueError, match=re.escape(f"数据集 {str(invalid_format_file)} 必须是JSON数组格式")):
+        TestSystemBenchmarking(config)
 
 def test_system_benchmarking_invalid_thresholds(mock_dataset, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
     """Test system benchmarking with invalid thresholds."""
@@ -335,5 +392,5 @@ def test_report_generator_invalid_tradeoff_results(output_dir):
     tradeoff_results = {0.5: {"energy": -1.0, "runtime": 2.0}}
 
     generator = ReportGenerator(output_dir=output_dir)
-    with pytest.raises(ValueError, match="Invalid tradeoff results"):
+    with pytest.raises(ValueError, match="能量必须是非负数"):
         generator.generate_report(benchmark_results, tradeoff_results)

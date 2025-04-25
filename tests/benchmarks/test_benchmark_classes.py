@@ -5,6 +5,11 @@ from src.benchmarking.model_benchmarking import ModelBenchmarking
 from typing import Dict, Any, List
 from pathlib import Path
 import os
+import json
+import logging
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 class TestSystemBenchmarking(SystemBenchmarking):
     """系统基准测试的具体实现。"""
@@ -23,7 +28,42 @@ class TestSystemBenchmarking(SystemBenchmarking):
         self.model_config = config.get("model_config", {})
         self.scheduler_config = config.get("scheduler_config", {})
         self.output_dir = config.get("output_dir")
+        self._load_dataset()
         self._init_components()
+    
+    def _load_dataset(self) -> None:
+        """加载数据集。"""
+        if not self.dataset_path:
+            raise ValueError("dataset_path 不能为空")
+        
+        try:
+            if self.dataset_path.endswith('.json'):
+                try:
+                    with open(self.dataset_path, 'r', encoding='utf-8') as f:
+                        self.dataset = json.load(f)
+                except FileNotFoundError:
+                    logger.error(f"数据集文件不存在: {self.dataset_path}")
+                    raise ValueError(f"数据集文件 {self.dataset_path} 不存在")
+                except json.JSONDecodeError as e:
+                    logger.error(f"数据集格式错误: {str(e)}")
+                    raise ValueError(f"数据集 {self.dataset_path} 不是有效的JSON格式")
+            elif self.dataset_path.endswith('.csv'):
+                try:
+                    df = pd.read_csv(self.dataset_path)
+                    self.dataset = df.to_dict('records')
+                except FileNotFoundError:
+                    logger.error(f"数据集文件不存在: {self.dataset_path}")
+                    raise ValueError(f"数据集文件 {self.dataset_path} 不存在")
+                except Exception as e:
+                    logger.error(f"加载CSV数据集失败: {str(e)}")
+                    raise ValueError(f"数据集 {self.dataset_path} 格式错误: {str(e)}")
+            else:
+                raise ValueError("不支持的数据集格式")
+        except Exception as e:
+            logger.error(f"加载数据集失败: {str(e)}")
+            raise
+        
+        self._validate_dataset()
     
     def _init_components(self) -> None:
         """初始化组件。"""
@@ -47,6 +87,11 @@ class TestSystemBenchmarking(SystemBenchmarking):
         if not self.initialized:
             raise RuntimeError("Benchmarking not initialized")
         
+        if thresholds:
+            for key, value in thresholds.items():
+                if not isinstance(value, (int, float)) or value <= 0:
+                    raise ValueError("Thresholds must be positive")
+        
         if thresholds is None:
             thresholds = {"T_in": 32, "T_out": 32}
         
@@ -63,6 +108,20 @@ class TestSystemBenchmarking(SystemBenchmarking):
             "energy_per_token": 0.5,
             "total_tasks": sample_size
         }
+
+    def _validate_dataset(self):
+        """验证数据集。"""
+        if not hasattr(self, 'dataset'):
+            raise ValueError("数据集未加载")
+        
+        if not isinstance(self.dataset, list):
+            raise ValueError(f"数据集 {self.dataset_path} 必须是JSON数组格式")
+        
+        if not self.dataset:
+            logger.warning(f"数据集 {self.dataset_path} 为空")
+            raise ValueError(f"数据集 {self.dataset_path} 为空")
+        
+        logger.info(f"成功加载数据集，共 {len(self.dataset)} 条记录")
 
 class TestModelBenchmarking(ModelBenchmarking):
     """测试用的模型基准测试类。"""

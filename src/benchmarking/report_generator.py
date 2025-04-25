@@ -30,9 +30,15 @@ class ReportGenerator:
         Args:
             benchmark_results: 基准测试结果
             tradeoff_results: 权衡分析结果
+            
+        Raises:
+            ValueError: 当基准测试结果为空或权衡结果无效时抛出
         """
         if not benchmark_results:
             raise ValueError("基准测试结果不能为空")
+        
+        if tradeoff_results:
+            self._validate_tradeoff_results(tradeoff_results)
         
         try:
             self._generate_summary(benchmark_results)
@@ -41,6 +47,32 @@ class ReportGenerator:
         except Exception as e:
             logger.error(f"生成报告失败: {str(e)}")
             raise
+    
+    def _validate_tradeoff_results(self, tradeoff_results: Dict[str, Any]) -> None:
+        """
+        验证权衡结果。
+        
+        Args:
+            tradeoff_results: 权衡分析结果
+            
+        Raises:
+            ValueError: 当权衡结果无效时抛出
+        """
+        for weight, metrics in tradeoff_results.items():
+            if not isinstance(weight, (int, float)) or weight < 0 or weight > 1:
+                raise ValueError("权重必须在0到1之间")
+            
+            if not isinstance(metrics, dict):
+                raise ValueError("指标必须是字典类型")
+            
+            if "energy" not in metrics or "runtime" not in metrics:
+                raise ValueError("指标必须包含energy和runtime")
+            
+            if not isinstance(metrics["energy"], (int, float)) or metrics["energy"] < 0:
+                raise ValueError("能量必须是非负数")
+            
+            if not isinstance(metrics["runtime"], (int, float)) or metrics["runtime"] < 0:
+                raise ValueError("运行时间必须是非负数")
     
     def _generate_summary(self, results: Dict[str, Any]) -> None:
         """
