@@ -61,7 +61,7 @@ def test_config(tmp_path, mock_dataset):
             "device_id": 0,
             "device_type": "cuda",
             "idle_power": 100,
-            "sample_interval": 0.1
+            "sample_interval": 200
         },
         "model_config": {
             "model_name": "mock_model",
@@ -502,3 +502,243 @@ def test_system_benchmarking_error_handling(test_config):
         benchmarking = TestSystemBenchmarking(test_config)
         with pytest.raises(MemoryError, match="可用内存不足"):
             benchmarking.run_benchmarks()
+
+def test_base_benchmarking_resource_cleanup(test_config):
+    """测试基准测试基类的资源清理功能。"""
+    class TestBaseBenchmarking(BaseBenchmarking):
+        def _validate_config(self): pass
+        def _init_components(self): pass
+        def run_benchmarks(self, tasks): pass
+        def get_metrics(self): pass
+        
+        def allocate_resources(self):
+            self.temp_file = "temp.txt"
+            with open(self.temp_file, "w") as f:
+                f.write("test")
+            self.temp_dir = "temp_dir"
+            os.makedirs(self.temp_dir, exist_ok=True)
+    
+    benchmark = TestBaseBenchmarking(test_config)
+    benchmark.allocate_resources()
+    
+    assert os.path.exists(benchmark.temp_file)
+    assert os.path.exists(benchmark.temp_dir)
+    
+    benchmark.cleanup()
+    
+    assert not os.path.exists(benchmark.temp_file)
+    assert not os.path.exists(benchmark.temp_dir)
+
+def test_base_benchmarking_state_recovery(test_config):
+    """测试基准测试基类的状态恢复功能。"""
+    class TestBaseBenchmarking(BaseBenchmarking):
+        def _validate_config(self): pass
+        def _init_components(self): 
+            self.state = {"initialized": True, "count": 0}
+            self.save_state()
+        def run_benchmarks(self, tasks): pass
+        def get_metrics(self): pass
+        
+        def save_state(self):
+            with open("benchmark_state.json", "w") as f:
+                json.dump(self.state, f)
+        
+        def load_state(self):
+            try:
+                with open("benchmark_state.json", "r") as f:
+                    self.state = json.load(f)
+                return True
+            except FileNotFoundError:
+                return False
+    
+    # 测试正常状态保存和恢复
+    benchmark = TestBaseBenchmarking(test_config)
+    benchmark._init_components()
+    assert os.path.exists("benchmark_state.json")
+    
+    # 测试状态恢复
+    new_benchmark = TestBaseBenchmarking(test_config)
+    assert new_benchmark.load_state()
+    assert new_benchmark.state["initialized"]
+    assert new_benchmark.state["count"] == 0
+    
+    # 清理
+    os.remove("benchmark_state.json")
+
+def test_base_benchmarking_config_validation(test_config):
+    """测试基准测试基类的配置验证功能。"""
+    class TestBaseBenchmarking(BaseBenchmarking):
+        def _validate_config(self):
+            if "custom_field" not in self.config:
+                raise ValueError("缺少custom_field配置")
+        def _init_components(self): pass
+        def run_benchmarks(self, tasks): pass
+        def get_metrics(self): pass
+    
+    # 测试必需字段验证
+    invalid_config = {}
+    with pytest.raises(ValueError, match="dataset_path 不能为空"):
+        TestBaseBenchmarking(invalid_config)
+    
+    # 测试字段类型验证
+    invalid_config = {
+        "dataset_path": 123,  # 应该是字符串
+        "hardware_config": {},
+        "model_config": {},
+        "output_dir": ""
+    }
+    with pytest.raises(ValueError, match="dataset_path 必须是 str 类型"):
+        TestBaseBenchmarking(invalid_config)
+    
+    # 测试自定义配置验证
+    valid_base_config = test_config.copy()
+    with pytest.raises(ValueError, match="缺少custom_field配置"):
+        TestBaseBenchmarking(valid_base_config)
+    
+    # 测试有效配置
+    valid_base_config["custom_field"] = "test"
+    benchmark = TestBaseBenchmarking(valid_base_config)
+    assert benchmark.config["custom_field"] == "test"
+
+def test_report_generator_custom_plots(tmp_path):
+    """测试报告生成器的自定义图表生成。"""
+    output_dir = tmp_path / "output"
+    os.makedirs(output_dir)
+    generator = ReportGenerator(str(output_dir))
+    
+    # 准备测试数据
+    metrics = {
+        "model1": {
+            "throughput": [100.0, 110.0, 90.0],
+            "latency": [0.1, 0.12, 0.09],
+            "energy": [50.0, 55.0, 45.0],
+            "runtime": [1.0, 1.1, 0.9],
+            "summary": {
+                "avg_throughput": 100.0,
+                "avg_latency": 0.1,
+                "avg_energy_per_token": 0.5,
+                "avg_runtime": 1.0
+            }
+        },
+        "model2": {
+            "throughput": [200.0, 220.0, 180.0],
+            "latency": [0.2, 0.22, 0.18],
+            "energy": [100.0, 110.0, 90.0],
+            "runtime": [2.0, 2.2, 1.8],
+            "summary": {
+                "avg_throughput": 200.0,
+                "avg_latency": 0.2,
+                "avg_energy_per_token": 1.0,
+                "avg_runtime": 2.0
+            }
+        }
+    }
+    
+    # 测试时间序列图
+    generator.plot_time_series(metrics, "throughput")
+    assert os.path.exists(output_dir / "throughput_time_series.png")
+    
+    # 测试箱线图
+    generator.plot_boxplot(metrics, "latency")
+    assert os.path.exists(output_dir / "latency_boxplot.png")
+    
+    # 测试散点图
+    generator.plot_scatter(metrics, "energy", "runtime")
+    assert os.path.exists(output_dir / "energy_vs_runtime_scatter.png")
+    
+    # 测试热力图
+    generator.plot_heatmap(metrics)
+    assert os.path.exists(output_dir / "metrics_heatmap.png")
+
+def test_report_generator_invalid_data_handling(tmp_path):
+    """测试报告生成器的无效数据处理。"""
+    output_dir = tmp_path / "output"
+    os.makedirs(output_dir)
+    generator = ReportGenerator(str(output_dir))
+    
+    # 测试空指标数据
+    with pytest.raises(ValueError, match="指标数据不能为空"):
+        generator.generate_report({}, {})
+    
+    # 测试缺失必需字段
+    invalid_metrics = {
+        "model1": {
+            "throughput": 100.0,
+            # 缺少 latency
+            "energy": 50.0,
+            "runtime": 1.0
+        }
+    }
+    with pytest.raises(ValueError, match="缺少必需的指标字段"):
+        generator.generate_report(invalid_metrics, {})
+    
+    # 测试无效的数值类型
+    invalid_metrics = {
+        "model1": {
+            "throughput": "invalid",
+            "latency": 0.1,
+            "energy": 50.0,
+            "runtime": 1.0
+        }
+    }
+    with pytest.raises(ValueError, match="指标值必须是数值类型"):
+        generator.generate_report(invalid_metrics, {})
+
+def test_report_generator_custom_options(tmp_path):
+    """测试报告生成器的自定义配置选项。"""
+    output_dir = tmp_path / "output"
+    os.makedirs(output_dir)
+    
+    # 测试自定义图表样式
+    custom_style = {
+        "figure.figsize": (12, 8),
+        "axes.titlesize": 14,
+        "axes.labelsize": 12,
+        "lines.linewidth": 2,
+        "lines.markersize": 8
+    }
+    generator = ReportGenerator(str(output_dir), style_config=custom_style)
+    
+    # 测试自定义输出格式
+    metrics = {
+        "model1": {
+            "throughput": 100.0,
+            "latency": 0.1,
+            "energy": 50.0,
+            "runtime": 1.0,
+            "summary": {
+                "avg_throughput": 100.0,
+                "avg_latency": 0.1,
+                "avg_energy_per_token": 0.5,
+                "avg_runtime": 1.0
+            }
+        }
+    }
+    
+    # 生成PDF报告
+    generator.generate_report(metrics, {}, output_format="pdf")
+    assert os.path.exists(output_dir / "report.pdf")
+    
+    # 生成CSV报告
+    generator.generate_report(metrics, {}, output_format="csv")
+    assert os.path.exists(output_dir / "metrics.csv")
+    
+    # 测试自定义模板
+    custom_template = """
+    <html>
+    <head><title>Custom Report</title></head>
+    <body>
+        <h1>Custom Benchmark Report</h1>
+        <div class="metrics">{{metrics_table}}</div>
+        <div class="plots">{{plots}}</div>
+    </body>
+    </html>
+    """
+    generator.generate_report(metrics, {}, template=custom_template)
+    
+    # 验证生成的报告包含自定义模板内容
+    with open(output_dir / "report.html", "r", encoding="utf-8") as f:
+        content = f.read()
+        assert "Custom Benchmark Report" in content
+        assert '<div class="metrics">' in content
+        assert '<div class="plots">' in content

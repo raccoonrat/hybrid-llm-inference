@@ -16,31 +16,33 @@ def _get_nvml_library_path() -> str:
     
     Returns:
         str: NVML 库的完整路径
+        
+    Raises:
+        RuntimeError: 当找不到 NVML 库时抛出
     """
     if sys.platform == "win32":
-        # Windows 平台
-        nvml_path = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "nvml.dll")
-        if not os.path.exists(nvml_path):
-            # 尝试 NVIDIA 驱动目录
-            program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
-            nvml_path = os.path.join(program_files, "NVIDIA Corporation", "NVSMI", "nvml.dll")
+        # Windows 平台，固定路径为 c:\windows\system32\nvml.dll
+        nvml_path = "c:\\windows\\system32\\nvml.dll"
     else:
-        # Linux 平台
-        cuda_paths = [
-            "/usr/local/cuda/lib64",
-            "/usr/local/cuda/lib",
+        # Linux 平台，在 /usr/local/cuda-12.8 下查找
+        cuda_base = "/usr/local/cuda-12.8"
+        cuda_lib_paths = [
+            os.path.join(cuda_base, "lib64"),
+            os.path.join(cuda_base, "lib"),
+            os.path.join(cuda_base, "targets/x86_64-linux/lib/stus"),
             "/usr/lib64",
             "/usr/lib"
         ]
+        
         nvml_path = None
-        for path in cuda_paths:
+        for path in cuda_lib_paths:
             test_path = os.path.join(path, "libnvidia-ml.so")
             if os.path.exists(test_path):
                 nvml_path = test_path
                 break
         
         if not nvml_path:
-            raise RuntimeError("无法找到 NVML 库，请确保已安装 NVIDIA 驱动和 CUDA")
+            raise RuntimeError(f"无法在 {cuda_base} 及系统库目录下找到 NVML 库，请确保已安装 NVIDIA 驱动和 CUDA")
     
     if not os.path.exists(nvml_path):
         raise RuntimeError(f"NVML 库不存在: {nvml_path}")
@@ -94,22 +96,32 @@ class RTX4050Profiler(HardwareProfiler):
         """初始化性能分析器。"""
         try:
             if not torch.cuda.is_available():
-                raise RuntimeError("CUDA 不可用")
-            if self.device_id >= torch.cuda.device_count():
-                raise ValueError(f"设备 ID {self.device_id} 无效")
+                logger.warning("CUDA 不可用，使用 CPU 模式")
+                self.device = torch.device("cpu")
+                self.initialized = True
+                return
                 
-            # 获取 NVML 库路径并初始化
-            nvml_path = _get_nvml_library_path()
-            pynvml.nvmlInit(nvml_path)
-            self.nvml_initialized = True
-            self.handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_id)
-            
-            # 验证设备类型
-            device_name = pynvml.nvmlDeviceGetName(self.handle)
-            if isinstance(device_name, bytes):
-                device_name = device_name.decode()
-            if "RTX 4050" not in device_name:
-                logger.warning(f"当前设备不是 RTX 4050: {device_name}")
+            if self.device_id >= torch.cuda.device_count():
+                logger.warning(f"设备 ID {self.device_id} 无效，使用 CPU 模式")
+                self.device = torch.device("cpu")
+                self.initialized = True
+                return
+                
+            # 初始化 NVML
+            try:
+                pynvml.nvmlInit()
+                self.nvml_initialized = True
+                self.handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_id)
+                
+                # 验证设备类型
+                device_name = pynvml.nvmlDeviceGetName(self.handle)
+                if isinstance(device_name, bytes):
+                    device_name = device_name.decode()
+                if "RTX 4050" not in device_name:
+                    logger.warning(f"当前设备不是 RTX 4050: {device_name}")
+            except (pynvml.NVMLError_LibraryNotFound, FileNotFoundError) as e:
+                logger.warning(f"NVML 库不可用: {str(e)}，使用 CPU 模式")
+                self.nvml_initialized = False
                 
             self.device = torch.device(f"cuda:{self.device_id}")
             self.initialized = True
@@ -202,4 +214,52 @@ class RTX4050Profiler(HardwareProfiler):
         try:
             self.cleanup()
         except Exception:
-            pass  # 忽略析构函数中的错误 
+            pass  # 忽略析构函数中的错误
+
+    def get_power_usage(self) -> float:
+        """获取当前功率使用情况。
+
+        Returns:
+            float: 当前功率使用值（瓦特）
+        """
+        if not self.initialized or not self.nvml_initialized or self.handle is None:
+            return self.idle_power
+            
+        try:
+            power = pynvml.nvmlDeviceGetPowerUsage(self.handle) / 1000.0  # 转换为瓦特
+            return max(0.0, power - self.idle_power)  # 减去空闲功耗
+        except pynvml.NVMLError as e:
+            logger.error(f"功率测量失败: {e}")
+            return self.idle_power
+
+    def get_memory_usage(self) -> int:
+        """获取当前显存使用情况。
+
+        Returns:
+            int: 当前显存使用量（字节）
+        """
+        if not self.initialized or not self.nvml_initialized or self.handle is None:
+            return 0
+            
+        try:
+            info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
+            return info.used
+        except pynvml.NVMLError as e:
+            logger.error(f"显存使用量获取失败: {e}")
+            return 0
+
+    def get_gpu_utilization(self) -> float:
+        """获取 GPU 利用率。
+
+        Returns:
+            float: GPU 利用率（百分比）
+        """
+        if not self.initialized or not self.nvml_initialized or self.handle is None:
+            return 0.0
+            
+        try:
+            utilization = pynvml.nvmlDeviceGetUtilizationRates(self.handle)
+            return float(utilization.gpu)
+        except pynvml.NVMLError as e:
+            logger.error(f"GPU 利用率获取失败: {e}")
+            return 0.0 
