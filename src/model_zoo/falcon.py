@@ -5,10 +5,9 @@ from model_zoo.base_model import BaseModel
 from toolbox.logger import get_logger
 from toolbox.accelerate_wrapper import AccelerateWrapper
 import os
-import logging
 from typing import Dict, Any, Optional
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class FalconModel(BaseModel):
     """Falcon 模型类。"""

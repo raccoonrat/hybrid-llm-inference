@@ -29,6 +29,9 @@ class TaskAllocator(BaseAllocator):
                 - hardware_config: 硬件配置
                 - model_config: 模型配置
         """
+        if config is None:
+            raise ValueError("配置不能为 None")
+            
         super().__init__(config)
         
         # 初始化基本属性

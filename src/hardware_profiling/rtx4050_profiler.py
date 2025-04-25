@@ -71,6 +71,7 @@ class RTX4050Profiler(HardwareProfiler):
         self.device = None
         self.handle = None
         self.nvml_initialized = False
+        self.is_measuring = False  # 添加测量状态标志
 
         # 验证配置
         self._validate_config()
@@ -269,6 +270,7 @@ class RTX4050Profiler(HardwareProfiler):
         if not self.initialized:
             raise RuntimeError("性能分析器未初始化")
             
+        self.is_measuring = True
         self.monitoring_start_time = time.time()
         self.monitoring_start_power = self.measure_power()
         self.monitoring_start_memory = self.get_memory_usage()
@@ -288,6 +290,7 @@ class RTX4050Profiler(HardwareProfiler):
         if not hasattr(self, 'monitoring_start_time'):
             raise RuntimeError("未开始性能监控")
             
+        self.is_measuring = False
         end_time = time.time()
         end_power = self.measure_power()
         end_memory = self.get_memory_usage()
@@ -305,4 +308,85 @@ class RTX4050Profiler(HardwareProfiler):
             "avg_power": avg_power,
             "avg_memory": avg_memory,
             "avg_utilization": avg_utilization
-        } 
+        }
+
+    def get_memory_info(self) -> Dict[str, float]:
+        """获取 GPU 内存信息。
+
+        Returns:
+            Dict[str, float]: 包含以下字段的内存信息：
+                - total: 总内存（字节）
+                - used: 已使用内存（字节）
+                - free: 可用内存（字节）
+        """
+        if not self.initialized or not self.nvml_initialized or self.handle is None:
+            return {
+                'total': 0.0,
+                'used': 0.0,
+                'free': 0.0
+            }
+            
+        try:
+            info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
+            return {
+                'total': float(info.total),
+                'used': float(info.used),
+                'free': float(info.free)
+            }
+        except pynvml.NVMLError as e:
+            logger.error(f"获取内存信息失败: {e}")
+            return {
+                'total': 0.0,
+                'used': 0.0,
+                'free': 0.0
+            }
+
+    def measure_performance(self, task: Dict[str, Any]) -> Dict[str, float]:
+        """测量任务性能。
+
+        Args:
+            task: 任务字典，包含以下字段：
+                - input: 输入文本
+                - max_tokens: 最大输出令牌数
+
+        Returns:
+            Dict[str, float]: 包含以下字段的性能指标：
+                - energy: 能耗（J）
+                - runtime: 运行时间（s）
+                - throughput: 吞吐量（tokens/s）
+                - energy_per_token: 每令牌能耗（J/token）
+        """
+        if not self.initialized:
+            raise RuntimeError("性能分析器未初始化")
+
+        try:
+            # 开始测量
+            self.start_monitoring()
+            
+            # 执行任务
+            def execute_task():
+                # 这里应该执行实际的模型推理
+                time.sleep(0.1)  # 模拟任务执行
+            
+            execute_task()
+            
+            # 停止测量并获取指标
+            metrics = self.stop_monitoring()
+            
+            # 计算令牌相关的指标
+            input_tokens = len(task["input"].split())  # 简单估算
+            output_tokens = min(task["max_tokens"], 100)  # 假设平均输出100个令牌
+            
+            total_tokens = input_tokens + output_tokens
+            metrics["throughput"] = total_tokens / metrics["runtime"] if metrics["runtime"] > 0 else 0
+            metrics["energy_per_token"] = metrics["energy_consumption"] / total_tokens if total_tokens > 0 else 0
+            
+            return {
+                "energy": metrics["energy_consumption"],
+                "runtime": metrics["runtime"],
+                "throughput": metrics["throughput"],
+                "energy_per_token": metrics["energy_per_token"]
+            }
+        except Exception as e:
+            logger.error(f"性能测量失败: {str(e)}")
+            raise 

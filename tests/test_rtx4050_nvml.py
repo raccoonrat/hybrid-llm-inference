@@ -1,13 +1,66 @@
-import os
-import sys
-import logging
-import ctypes
-import platform
-from ctypes import *
+"""RTX4050 NVML功能测试。"""
 
-# 设置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import os
+import pytest
+import pynvml
+from unittest.mock import patch, MagicMock
+
+from ..src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from ..src.toolbox.logger import get_logger
+
+logger = get_logger(__name__)
+
+# 测试配置
+TEST_CONFIG = {
+    "device_id": 0,
+    "device_type": "RTX4050",
+    "idle_power": 20.0,
+    "sample_interval": 0.1,
+    "memory_limit": 6 * 1024 * 1024 * 1024,  # 6GB
+    "tdp": 115.0,  # 115W
+    "log_level": "DEBUG"
+}
+
+@pytest.fixture(scope="function")
+def mock_nvml():
+    """模拟NVML库的fixture。"""
+    with patch("pynvml.nvmlInit") as mock_init, \
+         patch("pynvml.nvmlDeviceGetHandleByIndex") as mock_get_handle, \
+         patch("pynvml.nvmlDeviceGetName") as mock_get_name, \
+         patch("pynvml.nvmlDeviceGetPowerUsage") as mock_get_power, \
+         patch("pynvml.nvmlDeviceGetMemoryInfo") as mock_get_memory, \
+         patch("pynvml.nvmlDeviceGetUtilizationRates") as mock_get_util, \
+         patch("pynvml.nvmlShutdown") as mock_shutdown:
+        
+        # 设置模拟返回值
+        mock_handle = MagicMock()
+        mock_get_handle.return_value = mock_handle
+        mock_get_name.return_value = b"NVIDIA GeForce RTX 4050"
+        mock_get_power.return_value = 50000  # 50W in milliwatts
+        
+        class MemoryInfo:
+            def __init__(self):
+                self.total = 6 * 1024 * 1024 * 1024  # 6GB
+                self.used = 2 * 1024 * 1024 * 1024   # 2GB
+                self.free = 4 * 1024 * 1024 * 1024   # 4GB
+        mock_get_memory.return_value = MemoryInfo()
+        
+        class UtilizationRates:
+            def __init__(self):
+                self.gpu = 75
+                self.memory = 50
+        mock_get_util.return_value = UtilizationRates()
+        
+        yield {
+            "init": mock_init,
+            "get_handle": mock_get_handle,
+            "get_name": mock_get_name,
+            "get_power": mock_get_power,
+            "get_memory": mock_get_memory,
+            "get_util": mock_get_util,
+            "shutdown": mock_shutdown,
+            "handle": mock_handle
+        }
 
 def test_rtx4050_nvml():
     """测试 RTX4050 的 NVML 功能"""

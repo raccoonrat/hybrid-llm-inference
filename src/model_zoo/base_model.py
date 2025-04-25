@@ -1,36 +1,79 @@
 # hybrid-llm-inference/src/model_zoo/base_model.py
 """基础模型模块。"""
 
-import os
+import torch
 import time
-import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Tuple
-from toolbox.logger import get_logger
+from src.toolbox.logger import get_logger
 
 logger = get_logger(__name__)
 
 class BaseModel(ABC):
-    """基础模型类。"""
+    """基础模型类，提供通用的模型接口。"""
     
     def __init__(self, config: Dict[str, Any]):
-        """初始化基础模型。
-
+        """初始化模型。
+        
         Args:
-            config: 配置字典
+            config: 模型配置
         """
         self.config = config
-        self.initialized = False
-        
-        # 验证基础配置
-        self._validate_base_config()
-        
-        logger.info("基础模型初始化完成")
+        self.model = None
+        self.tokenizer = None
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"模型初始化完成，使用设备: {self.device}")
     
+    def load_model(self):
+        """加载模型。"""
+        raise NotImplementedError
+    
+    def get_token_count(self, text: str) -> int:
+        """获取文本的token数量。
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            token数量
+        """
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer未初始化")
+        return len(self.tokenizer.encode(text))
+    
+    def infer(self, prompt: str, max_tokens: int = 100) -> str:
+        """执行推理。
+        
+        Args:
+            prompt: 输入提示
+            max_tokens: 最大生成token数
+            
+        Returns:
+            生成的文本
+        """
+        if self.model is None:
+            raise RuntimeError("模型未加载")
+        
+        start_time = time.time()
+        try:
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=max_tokens,
+                do_sample=True,
+                temperature=0.7
+            )
+            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            logger.info(f"推理完成，耗时: {time.time() - start_time:.2f}秒")
+            return response
+        except Exception as e:
+            logger.error(f"推理失败: {str(e)}")
+            raise
+    
+    @abstractmethod
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
-        if not isinstance(self.config, dict):
-            raise ValueError("配置必须是字典类型")
+        pass
     
     @abstractmethod
     def _validate_config(self) -> None:
@@ -99,36 +142,11 @@ class BaseModel(ABC):
         """重置性能指标。"""
         pass
         
-    @abstractmethod
-    def get_token_count(self, text: str) -> int:
-        """获取文本的token数量。
-        
-        Args:
-            text: 输入文本
-            
-        Returns:
-            int: token数量
-            
-        Raises:
-            NotImplementedError: 子类必须实现此方法
-        """
-        pass
-        
     def initialize(self):
         """初始化模型。"""
-        if self.initialized:
-            return
-        self.initialized = True
-        logger.info("模型初始化完成")
-        
-    def infer(self, text: str) -> str:
-        """
-        执行推理的包装方法。
-
-        Args:
-            text: 输入文本
-
-        Returns:
-            str: 输出文本
-        """
-        return self.inference(text)
+        if self.model is None:
+            self.model = self.load_model()
+            self.tokenizer = self.tokenizer
+            logger.info("模型初始化完成")
+        else:
+            logger.info("模型已初始化")

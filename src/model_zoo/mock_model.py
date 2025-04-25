@@ -4,6 +4,9 @@
 
 from typing import Dict, Any, List
 from .base_model import BaseModel
+from toolbox.logger import get_logger
+
+logger = get_logger(__name__)
 
 class MockModel(BaseModel):
     """
@@ -20,6 +23,7 @@ class MockModel(BaseModel):
         super().__init__(config)
         self.response_text = "这是一个模拟的响应。"
         self.token_multiplier = 1.5  # 用于模拟token计数
+        logger.info("模拟模型初始化完成")
 
     def _do_inference(self, text: str) -> str:
         """
@@ -31,6 +35,7 @@ class MockModel(BaseModel):
         Returns:
             str: 模拟的响应文本
         """
+        logger.debug(f"执行模拟推理，输入文本长度: {len(text)}")
         return self.response_text
 
     def infer(self, text: str) -> str:
@@ -43,6 +48,9 @@ class MockModel(BaseModel):
         Returns:
             str: 推理结果
         """
+        if not text:
+            logger.warning("输入文本为空")
+            return ""
         return self._do_inference(text)
 
     def get_token_count(self, text: str) -> int:
@@ -55,4 +63,9 @@ class MockModel(BaseModel):
         Returns:
             int: 模拟的token数量
         """
-        return int(len(text) * self.token_multiplier)  # 简单地将文本长度乘以一个系数 
+        if not text:
+            logger.warning("输入文本为空")
+            return 0
+        token_count = int(len(text) * self.token_multiplier)
+        logger.debug(f"计算token数量: {token_count}")
+        return token_count 

@@ -1,8 +1,8 @@
 # hybrid-llm-inference/src/model_zoo/__init__.py
 """模型库模块。"""
 
-import logging
 from typing import Dict, Any, Optional
+from src.toolbox.logger import get_logger
 
 from .base_model import BaseModel
 from .tinyllama import TinyLlama
@@ -10,7 +10,7 @@ from .falcon import FalconModel
 from .mistral import LocalMistral, APIMistral
 from .llama3 import LocalLlama3, APILlama3
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def get_model(config: Dict[str, Any]) -> BaseModel:
     """获取模型实例。

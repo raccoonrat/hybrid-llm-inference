@@ -21,7 +21,7 @@ class TokenBasedScheduler(BaseScheduler):
                 - model_config: 模型配置
         """
         # 初始化基本属性
-        self.token_threshold = config.get("token_threshold", 100)
+        self.token_threshold = config.get("token_threshold", 1000)
         self.hardware_config = config.get("hardware_config", {})
         self.model_config = config.get("model_config", {})
         self.initialized = False
@@ -69,13 +69,24 @@ class TokenBasedScheduler(BaseScheduler):
             raise RuntimeError("调度器未初始化")
         if not tasks:
             return []
+        if not isinstance(tasks, list):
+            raise TypeError("tasks 必须是列表类型")
 
         scheduled_tasks = []
         for task in tasks:
+            if task is None:
+                raise ValueError("任务不能为 None")
             if not isinstance(task, dict):
-                raise ValueError("任务必须是字典类型")
+                raise TypeError("任务必须是字典类型")
+            if "tokens" not in task:
+                raise ValueError("任务必须包含 tokens 字段")
                 
-            tokens = task.get("tokens", 0)
+            tokens = task["tokens"]
+            if not isinstance(tokens, (int, float)):
+                raise ValueError("令牌数量必须是数字")
+            if tokens < 0:
+                raise ValueError("令牌数量不能为负数")
+                
             if tokens <= self.token_threshold:
                 model = "tinyllama"
                 hardware = "apple_m1_pro"

@@ -7,13 +7,39 @@ from src.scheduling.task_allocator import TaskAllocator
 class TaskScheduler:
     """任务调度器，负责管理和分配任务"""
     
-    def __init__(self):
+    def __init__(self, config: Dict[str, Any] = None):
         """初始化调度器"""
-        self.allocator = TaskAllocator()
+        if config is None:
+            config = {
+                "hardware_config": {
+                    "apple_m1_pro": {
+                        "device_type": "m1_pro",
+                        "idle_power": 10.0,
+                        "sample_interval": 200
+                    },
+                    "nvidia_rtx4050": {
+                        "device_type": "rtx4050",
+                        "idle_power": 15.0,
+                        "sample_interval": 200
+                    }
+                },
+                "model_config": {
+                    "models": {
+                        "tinyllama": {
+                            "model_name": "tinyllama",
+                            "model_path": "path/to/model",
+                            "mode": "local",
+                            "batch_size": 1,
+                            "max_length": 128
+                        }
+                    }
+                }
+            }
+        self.allocator = TaskAllocator(config)
         self.tasks = []
         self.device_queues = {
-            "gpu": [],
-            "cpu": []
+            "apple_m1_pro": [],
+            "nvidia_rtx4050": []
         }
         self.gpu_cache = {}  # 缓存GPU计算结果
         self.cpu_cache = {}  # 缓存CPU计算结果
@@ -21,7 +47,7 @@ class TaskScheduler:
         self.device_affinity = {}  # 设备亲和性记录
         self.affinity_threshold = 0.7  # 亲和性阈值
         self.batch_size = 4  # 批处理大小
-        self.current_batch = {"gpu": [], "cpu": []}  # 当前批次任务
+        self.current_batch = {"apple_m1_pro": [], "nvidia_rtx4050": []}  # 当前批次任务
         self.batch_results = {}  # 批次结果缓存
         
     def add_task(self, task: Dict[str, Any]) -> None:
@@ -34,18 +60,20 @@ class TaskScheduler:
         
         for task in self.tasks:
             # 获取任务分配
-            device = self.allocator.allocate_task(
-                task["instruction"],
-                task["input"],
-                token_threshold
-            )
+            allocations = self.allocator.allocate([{
+                "input_tokens": len(task["input"].split()),
+                "output_tokens": 50,  # 假设输出令牌数为 50
+                "model": "tinyllama"
+            }])
             
-            # 将任务添加到对应设备队列
-            self.device_queues[device].append(task)
-            scheduled_tasks.append({
-                "task": task,
-                "device": device
-            })
+            if allocations:
+                allocation = allocations[0]
+                # 将任务添加到对应设备队列
+                self.device_queues[allocation["hardware"]].append(task)
+                scheduled_tasks.append({
+                    "task": task,
+                    "device": allocation["hardware"]
+                })
             
         return scheduled_tasks
     
@@ -86,7 +114,7 @@ class TaskScheduler:
     def update_device_affinity(self, task_key: str, device: str) -> None:
         """更新设备亲和性"""
         if task_key not in self.device_affinity:
-            self.device_affinity[task_key] = {"gpu": 0, "cpu": 0}
+            self.device_affinity[task_key] = {"apple_m1_pro": 0, "nvidia_rtx4050": 0}
         
         self.device_affinity[task_key][device] += 1
         
@@ -98,15 +126,15 @@ class TaskScheduler:
     def get_preferred_device(self, task_key: str) -> str:
         """获取任务的首选设备"""
         if task_key not in self.device_affinity:
-            return "gpu"  # 默认使用GPU
+            return "apple_m1_pro"  # 默认使用apple_m1_pro
         
         affinity = self.device_affinity[task_key]
-        if affinity["gpu"] >= self.affinity_threshold:
-            return "gpu"
-        elif affinity["cpu"] >= self.affinity_threshold:
-            return "cpu"
+        if affinity["apple_m1_pro"] >= self.affinity_threshold:
+            return "apple_m1_pro"
+        elif affinity["nvidia_rtx4050"] >= self.affinity_threshold:
+            return "nvidia_rtx4050"
         else:
-            return "gpu"  # 亲和性不明显时使用GPU
+            return "apple_m1_pro"  # 亲和性不明显时使用apple_m1_pro
     
     def execute_batch(self, device: str) -> None:
         """执行当前批次的任务"""
@@ -114,7 +142,7 @@ class TaskScheduler:
             return
         
         # 执行设备特定的计算任务
-        if device == "gpu" and torch.cuda.is_available():
+        if device == "apple_m1_pro" and torch.cuda.is_available():
             # GPU任务：矩阵运算 + 注意力计算
             batch_size = 32
             seq_len = 128
@@ -160,7 +188,7 @@ class TaskScheduler:
         
         Args:
             task_fn: 任务函数，返回任务结果
-            device: 执行设备 ("cpu" 或 "gpu")
+            device: 执行设备 ("apple_m1_pro" 或 "nvidia_rtx4050")
             
         Returns:
             Any: 任务执行结果
@@ -179,10 +207,10 @@ class TaskScheduler:
         preferred_device = self.get_preferred_device(task_key)
         if preferred_device != device:
             # 如果当前设备不是首选设备，考虑切换
-            if preferred_device == "gpu" and torch.cuda.is_available():
-                device = "gpu"
-            elif preferred_device == "cpu":
-                device = "cpu"
+            if preferred_device == "apple_m1_pro" and torch.cuda.is_available():
+                device = "apple_m1_pro"
+            elif preferred_device == "nvidia_rtx4050":
+                device = "nvidia_rtx4050"
         
         # 将任务添加到当前批次
         self.current_batch[device].append(task_fn)

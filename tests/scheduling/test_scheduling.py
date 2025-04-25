@@ -8,6 +8,7 @@ from src.scheduling.task_scheduler import TaskScheduler
 from src.scheduling.task_allocator import TaskAllocator
 from src.scheduling.token_based_scheduler import TokenBasedScheduler
 from src.scheduling.base_allocator import BaseAllocator
+from typing import List, Dict, Any
 
 # 测试配置
 TEST_CONFIG = {
@@ -59,14 +60,14 @@ def token_scheduler():
 def test_task_scheduler_init(task_scheduler):
     """测试 TaskScheduler 初始化。"""
     assert task_scheduler.tasks == []
-    assert task_scheduler.device_queues == {"gpu": [], "cpu": []}
+    assert task_scheduler.device_queues == {"apple_m1_pro": [], "nvidia_rtx4050": []}
     assert task_scheduler.gpu_cache == {}
     assert task_scheduler.cpu_cache == {}
     assert not task_scheduler.is_warmed_up
     assert task_scheduler.device_affinity == {}
     assert task_scheduler.affinity_threshold == 0.7
     assert task_scheduler.batch_size == 4
-    assert task_scheduler.current_batch == {"gpu": [], "cpu": []}
+    assert task_scheduler.current_batch == {"apple_m1_pro": [], "nvidia_rtx4050": []}
     assert task_scheduler.batch_results == {}
 
 def test_task_scheduler_add_task(task_scheduler):
@@ -91,7 +92,7 @@ def test_task_scheduler_schedule_tasks(task_scheduler):
     for task in scheduled_tasks:
         assert "task" in task
         assert "device" in task
-        assert task["device"] in ["gpu", "cpu"]
+        assert task["device"] in ["apple_m1_pro", "nvidia_rtx4050"]
 
 def test_task_scheduler_warmup(task_scheduler):
     """测试 TaskScheduler 预热。"""
@@ -166,15 +167,38 @@ def test_token_scheduler_schedule_invalid_tasks(token_scheduler):
         with pytest.raises((ValueError, TypeError)):
             token_scheduler.schedule([task])
 
+class TestAllocator(BaseAllocator):
+    """测试用的任务分配器。"""
+    
+    def _init_allocator(self) -> None:
+        """初始化任务分配器。"""
+        self.initialized = True
+    
+    def allocate(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """分配任务。"""
+        if not self.initialized:
+            raise RuntimeError("分配器未初始化")
+        if not tasks:
+            return []
+            
+        allocated_tasks = []
+        for task in tasks:
+            allocated_tasks.append({
+                "task": task,
+                "hardware": "apple_m1_pro",
+                "model": "tinyllama"
+            })
+        return allocated_tasks
+
 def test_base_allocator_init():
     """测试 BaseAllocator 初始化。"""
-    allocator = BaseAllocator(TEST_CONFIG)
+    allocator = TestAllocator(TEST_CONFIG)
     assert allocator.config == TEST_CONFIG
     assert not allocator.initialized
 
 def test_base_allocator_cleanup():
     """测试 BaseAllocator 资源清理。"""
-    allocator = BaseAllocator(TEST_CONFIG)
+    allocator = TestAllocator(TEST_CONFIG)
     allocator.initialize()
     assert allocator.initialized
     allocator.cleanup()

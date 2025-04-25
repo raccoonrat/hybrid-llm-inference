@@ -1,24 +1,26 @@
 """硬件性能分析模块的测试用例。"""
 
-import pytest
 import os
+import pytest
 import torch
 import pynvml
 from unittest.mock import patch, MagicMock
-from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from src.hardware_profiling.a800_profiler import A800Profiler
-from src.hardware_profiling.m1_profiler import M1Profiler
-from src.hardware_profiling import get_profiler
+
+from ..src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from ..src.hardware_profiling.a800_profiling import A800Profiler
+from ..src.hardware_profiling.m1_profiler import M1Profiler
+from ..src.hardware_profiling import get_profiler
 
 # 测试配置
 TEST_CONFIG = {
     "device_id": 0,
     "device_type": "gpu",
     "idle_power": 15.0,
-    "sample_interval": 200
+    "sample_interval": 200,
+    "log_level": "DEBUG"
 }
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_nvml():
     """模拟 NVML 的 fixture。"""
     with patch("pynvml.nvmlInit") as mock_init, \
@@ -39,7 +41,7 @@ def mock_nvml():
             "shutdown": mock_shutdown
         }
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_torch():
     """模拟 PyTorch 的 fixture。"""
     with patch("torch.cuda.is_available") as mock_is_available, \

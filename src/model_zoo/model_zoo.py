@@ -1,7 +1,6 @@
 """模型库模块。"""
 
 import os
-import logging
 from typing import Dict, Any, Optional
 from .base_model import BaseModel
 from toolbox.logger import get_logger

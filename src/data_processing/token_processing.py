@@ -5,112 +5,122 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from toolbox.logger import get_logger
 from model_zoo import get_model
+import os
+import numpy as np
+from typing import Dict, List, Optional, Union
+from .token_processor import TokenProcessor
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 class TokenProcessing:
-    def __init__(self, data, models, output_dir="data/processed"):
-        """
-        Initialize TokenProcessing for computing token counts and distributions.
+    def __init__(self, model_path: str):
+        self.processor = TokenProcessor(model_path)
+        self.logger = logging.getLogger(__name__)
+        
+    def process_tokens(self, texts: List[str]) -> pd.DataFrame:
+        """处理文本并返回包含 token 数据的 DataFrame"""
+        return self.processor.batch_process(texts)
+        
+    def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict[str, float]:
+        """计算 token 分布
         
         Args:
-            data (pd.DataFrame): DataFrame with 'prompt' and 'response' columns.
-            models (dict): Dictionary of model instances from ModelZoo.
-            output_dir (str): Directory to save token distribution.
+            df: 包含 token 数据的 DataFrame
+            save_path: 保存分布图的路径（可选）
+            
+        Returns:
+            Dict[str, float]: token 分布字典，key 为 token，value 为频率
         """
-        self.data = data
-        self.models = models
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = get_logger(__name__)
-        self.token_data = None
-        self.distribution = None
-
-    def process_tokens(self, model_name="llama3"):
-        """Compute input and output token counts for each prompt."""
-        if model_name not in self.models:
-            self.logger.error(f"Model {model_name} not found in ModelZoo")
-            raise ValueError(f"Model {model_name} not found")
-
-        model = self.models[model_name]
-        token_data = []
-
-        for _, row in self.data.iterrows():
-            prompt = row['prompt']
-            response = row['response']
+        if df.empty or 'input_tokens' not in df.columns:
+            self.logger.warning("输入数据为空或缺少 input_tokens 列")
+            return {}
             
-            # Compute token counts
-            input_tokens = model.get_token_count(prompt)
-            output_tokens = model.get_token_count(response) if response else 0
+        try:
+            # 收集所有 token
+            all_tokens = []
+            for tokens in df['input_tokens']:
+                all_tokens.extend(tokens)
+                
+            # 计算唯一 token 及其频率
+            unique_tokens, counts = np.unique(all_tokens, return_counts=True)
+            total = sum(counts)
             
-            # Filter tokens based on paper's range
-            if not (8 <= input_tokens <= 2048 and (0 <= output_tokens <= 4096 or output_tokens == 0)):
-                self.logger.warning(f"Skipping out-of-range tokens: input={input_tokens}, output={output_tokens}")
-                continue
-
-            token_data.append({
-                'prompt': prompt,
-                'response': response,
-                'input_tokens': input_tokens,
-                'output_tokens': output_tokens
-            })
-
-        self.token_data = pd.DataFrame(token_data)
-        self.logger.info(f"Processed {len(self.token_data)} prompts with token counts")
-        return self.token_data
-
-    def compute_distribution(self):
-        """Compute and save token distribution."""
-        if self.token_data is None:
-            self.logger.error("Token data not processed. Call process_tokens() first.")
-            raise ValueError("Token data not processed")
-
-        # Compute frequency distributions
-        input_dist = self.token_data['input_tokens'].value_counts().sort_index()
-        output_dist = self.token_data['output_tokens'].value_counts().sort_index()
-
-        self.distribution = {
-            'input_distribution': input_dist.to_dict(),
-            'output_distribution': output_dist.to_dict()
-        }
-
-        # Save distribution
-        dist_path = self.output_dir / 'token_distribution.pkl'
-        with open(dist_path, 'wb') as f:
-            pickle.dump(self.distribution, f)
-        self.logger.info(f"Saved token distribution to {dist_path}")
-
-        # Visualize distribution (replicate Figure 3 in paper)
-        self._visualize_distribution()
-        return self.distribution
-
-    def _visualize_distribution(self):
-        """Generate and save token distribution plots."""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+            # 计算频率分布
+            distribution = {
+                str(token): count/total 
+                for token, count in zip(unique_tokens, counts)
+            }
+            
+            # 如果提供了保存路径，生成并保存分布图
+            if save_path:
+                self._visualize_distribution(distribution, save_path)
+                
+            return distribution
+            
+        except Exception as e:
+            self.logger.error(f"计算 token 分布失败: {str(e)}")
+            return {}
+            
+    def _visualize_distribution(self, distribution: Dict[str, float], save_path: str):
+        """可视化 token 分布
         
-        # Input tokens
-        input_dist = self.distribution['input_distribution']
-        ax1.bar(input_dist.keys(), input_dist.values())
-        ax1.set_title('Input Token Distribution')
-        ax1.set_xlabel('Token Count')
-        ax1.set_ylabel('Frequency')
-        ax1.grid(True)
-
-        # Output tokens
-        output_dist = self.distribution['output_distribution']
-        ax2.bar(output_dist.keys(), output_dist.values())
-        ax2.set_title('Output Token Distribution')
-        ax2.set_xlabel('Token Count')
-        ax2.set_ylabel('Frequency')
-        ax2.grid(True)
-
-        plt.tight_layout()
-        plot_path = self.output_dir / 'token_distribution.png'
-        plt.savefig(plot_path)
-        plt.close()
-        self.logger.info(f"Saved distribution plot to {plot_path}")
-
-    def get_token_data(self):
-        """Return processed token data."""
-        if self.token_data is None:
-            self.logger.warning("Token data not processed. Call process_tokens() first.")
-            return pd.DataFrame()
-        return self.token_data
+        Args:
+            distribution: token 分布字典
+            save_path: 保存图片的路径
+        """
+        try:
+            # 准备数据
+            tokens = list(distribution.keys())
+            frequencies = list(distribution.values())
+            
+            # 创建图表
+            plt.figure(figsize=(12, 6))
+            plt.bar(range(len(tokens)), frequencies)
+            plt.xlabel('Token')
+            plt.ylabel('频率')
+            plt.title('Token 分布')
+            
+            # 设置 x 轴标签
+            plt.xticks(range(len(tokens)), tokens, rotation=45)
+            
+            # 保存图片
+            plt.tight_layout()
+            plt.savefig(save_path)
+            plt.close()
+            
+            self.logger.info(f"已保存分布图到: {save_path}")
+            
+        except Exception as e:
+            self.logger.error(f"生成分布图失败: {str(e)}")
+        
+    def get_token_data(self, df: pd.DataFrame, format: str = 'dataframe') -> Union[pd.DataFrame, Dict[str, List]]:
+        """获取处理后的 token 数据
+        
+        Args:
+            df: 输入 DataFrame
+            format: 返回格式，可选 'dataframe' 或 'dict'
+            
+        Returns:
+            Union[pd.DataFrame, Dict[str, List]]: 处理后的 token 数据
+        """
+        if df.empty:
+            self.logger.warning("输入数据为空")
+            return pd.DataFrame() if format == 'dataframe' else {}
+            
+        try:
+            # 提取所需列
+            token_data = df[['input_tokens', 'decoded_text']].copy()
+            
+            # 根据请求的格式返回数据
+            if format == 'dict':
+                return {
+                    'input_tokens': token_data['input_tokens'].tolist(),
+                    'decoded_text': token_data['decoded_text'].tolist()
+                }
+            else:
+                return token_data
+                
+        except Exception as e:
+            self.logger.error(f"获取 token 数据失败: {str(e)}")
+            return pd.DataFrame() if format == 'dataframe' else {}
