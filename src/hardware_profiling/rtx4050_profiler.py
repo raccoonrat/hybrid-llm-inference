@@ -262,4 +262,47 @@ class RTX4050Profiler(HardwareProfiler):
             return float(utilization.gpu)
         except pynvml.NVMLError as e:
             logger.error(f"GPU 利用率获取失败: {e}")
-            return 0.0 
+            return 0.0
+
+    def start_monitoring(self) -> None:
+        """开始性能监控。"""
+        if not self.initialized:
+            raise RuntimeError("性能分析器未初始化")
+            
+        self.monitoring_start_time = time.time()
+        self.monitoring_start_power = self.measure_power()
+        self.monitoring_start_memory = self.get_memory_usage()
+        self.monitoring_start_utilization = self.get_gpu_utilization()
+        
+    def stop_monitoring(self) -> Dict[str, float]:
+        """停止性能监控。
+
+        Returns:
+            Dict[str, float]: 包含以下字段的性能指标：
+                - energy_consumption: 能耗（J）
+                - runtime: 运行时间（s）
+                - avg_power: 平均功率（W）
+                - avg_memory: 平均内存使用（MB）
+                - avg_utilization: 平均 GPU 利用率（%）
+        """
+        if not hasattr(self, 'monitoring_start_time'):
+            raise RuntimeError("未开始性能监控")
+            
+        end_time = time.time()
+        end_power = self.measure_power()
+        end_memory = self.get_memory_usage()
+        end_utilization = self.get_gpu_utilization()
+        
+        runtime = end_time - self.monitoring_start_time
+        avg_power = (self.monitoring_start_power + end_power) / 2.0
+        avg_memory = (self.monitoring_start_memory + end_memory) / 2.0
+        avg_utilization = (self.monitoring_start_utilization + end_utilization) / 2.0
+        energy_consumption = avg_power * runtime
+        
+        return {
+            "energy_consumption": energy_consumption,
+            "runtime": runtime,
+            "avg_power": avg_power,
+            "avg_memory": avg_memory,
+            "avg_utilization": avg_utilization
+        } 

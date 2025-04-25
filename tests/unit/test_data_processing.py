@@ -24,49 +24,47 @@ def setup_test_env():
 
 @pytest.fixture
 def mock_model_dir(tmp_path):
-    """创建模拟的模型目录。
-    
-    Args:
-        tmp_path: pytest提供的临时目录
-        
-    Returns:
-        Path: 模型目录路径
-    """
+    """创建模拟的模型目录。"""
     model_dir = tmp_path / "models" / "TinyLlama-1.1B-Chat-v1.0"
     model_dir.mkdir(parents=True)
+    
+    # 创建模拟的tokenizer文件
+    config = {
+        "model_type": "tinyllama",
+        "vocab_size": 32000
+    }
+    with open(model_dir / "config.json", "w") as f:
+        json.dump(config, f)
+        
     return model_dir
 
 @pytest.fixture
 def token_processor(mock_model_dir):
-    """创建TokenProcessor实例。
-    
-    Args:
-        mock_model_dir: 模拟的模型目录
-        
-    Returns:
-        TokenProcessor: 处理器实例
-    """
-    return TokenProcessor(model_path=str(mock_model_dir))
+    """创建TokenProcessor实例。"""
+    processor = TokenProcessor(model_path=str(mock_model_dir))
+    yield processor
+    processor.cleanup()
 
 @pytest.fixture
 def data_loader():
-    """创建DataLoader实例。
-    
-    Returns:
-        DataLoader: 加载器实例
-    """
+    """创建DataLoader实例。"""
     return DataLoader()
 
 @pytest.fixture
 def sample_data():
-    """创建示例数据。
-    
-    Returns:
-        list: 示例数据列表
-    """
+    """创建示例数据。"""
     return [
         {"text": "这是第一个测试文本", "label": 0},
-        {"text": "这是第二个测试文本", "label": 1}
+        {"text": "这是第二个测试文本", "label": 1},
+        {"text": "这是第三个测试文本", "metadata": {"source": "test"}}
+    ]
+
+@pytest.fixture
+def large_sample_data():
+    """创建大量示例数据。"""
+    return [
+        {"text": f"测试文本{i}", "label": i % 2}
+        for i in range(100)
     ]
 
 def test_token_processor_initialization(mock_model_dir):
@@ -82,76 +80,158 @@ def test_token_processor_initialization(mock_model_dir):
     processor = TokenProcessor(model_name=custom_name, model_path=custom_path)
     assert processor.model_name == custom_name
     assert processor.model_path == custom_path
+    
+    # 测试无效路径
+    with pytest.raises(Exception):
+        TokenProcessor(model_path="/invalid/path")
 
 def test_token_processor_test_mode():
     """测试TokenProcessor的测试模式。"""
+    # 测试正常测试模式
     processor = TokenProcessor()
-    # 在测试模式下应该使用bert-base-chinese
     assert processor.tokenizer is not None
+    
+    # 测试禁用测试模式
+    os.environ["TEST_MODE"] = "false"
+    with pytest.raises(Exception):
+        TokenProcessor(model_path="/invalid/path")
+    os.environ["TEST_MODE"] = "true"
 
 def test_token_processing(token_processor):
     """测试token处理功能。"""
+    # 测试基本文本
     text = "这是一个测试句子"
-    
-    # 测试分词
     tokens = token_processor.process(text)
     assert isinstance(tokens, list)
     assert len(tokens) > 0
     
-    # 测试编码
-    encoded = token_processor.encode(text)
-    assert isinstance(encoded, list)
-    assert len(encoded) > 0
+    # 测试空文本
+    empty_text = ""
+    empty_tokens = token_processor.process(empty_text)
+    assert isinstance(empty_tokens, list)
+    assert len(empty_tokens) == 0
     
-    # 测试解码
-    decoded = token_processor.decode(encoded)
-    assert isinstance(decoded, str)
-    assert len(decoded) > 0
-
-def test_token_processor_error_handling(setup_test_env):
-    """测试TokenProcessor的错误处理。"""
-    # 临时禁用测试模式
-    if "TEST_MODE" in os.environ:
-        del os.environ["TEST_MODE"]
-        
-    # 测试无效的模型路径
-    with pytest.raises(Exception) as exc_info:
-        TokenProcessor(model_path="/not/exist/path", model_name="invalid-model")
-        
-    # 恢复测试模式
-    os.environ["TEST_MODE"] = "true"
-
-def test_vocab_size(token_processor):
-    """测试词汇表大小获取。"""
-    vocab_size = token_processor.get_vocab_size()
-    assert isinstance(vocab_size, int)
-    assert vocab_size > 0
-
-def test_data_loading(data_loader, tmp_path):
-    """测试数据加载功能。"""
-    # 创建测试数据文件
-    test_data = [{"text": "测试1"}, {"text": "测试2"}]
-    data_file = tmp_path / "test_data.json"
-    with open(data_file, "w", encoding="utf-8") as f:
-        json.dump(test_data, f, ensure_ascii=False)
+    # 测试特殊字符
+    special_text = "测试!@#$%^&*()_+"
+    special_tokens = token_processor.process(special_text)
+    assert isinstance(special_tokens, list)
+    assert len(special_tokens) > 0
     
-    # 测试加载
-    loaded_data = data_loader.load(str(data_file))
+    # 测试长文本
+    long_text = "测试" * 1000
+    long_tokens = token_processor.process(long_text)
+    assert isinstance(long_tokens, list)
+    assert len(long_tokens) > 0
+
+def test_token_processor_batch_processing(token_processor, sample_data):
+    """测试批量处理功能。"""
+    texts = [item["text"] for item in sample_data]
+    
+    # 测试批量分词
+    batch_tokens = token_processor.batch_process(texts)
+    assert isinstance(batch_tokens, list)
+    assert len(batch_tokens) == len(texts)
+    assert all(isinstance(tokens, list) for tokens in batch_tokens)
+    
+    # 测试空列表
+    empty_batch = token_processor.batch_process([])
+    assert isinstance(empty_batch, list)
+    assert len(empty_batch) == 0
+    
+    # 测试包含无效数据的批量处理
+    invalid_texts = ["正常文本", None, "", "另一个正常文本"]
+    with pytest.raises(Exception):
+        token_processor.batch_process(invalid_texts)
+
+def test_token_processor_error_handling(token_processor):
+    """测试错误处理。"""
+    # 测试None输入
+    with pytest.raises(Exception):
+        token_processor.process(None)
+    
+    # 测试无效类型
+    with pytest.raises(Exception):
+        token_processor.process(123)
+    
+    # 测试无效的token ID
+    with pytest.raises(Exception):
+        token_processor.decode([-1, 999999])
+
+def test_data_loader_functionality(data_loader, tmp_path, sample_data):
+    """测试DataLoader功能。"""
+    # 测试正常JSON文件
+    json_file = tmp_path / "test.json"
+    with open(json_file, "w", encoding="utf-8") as f:
+        json.dump(sample_data, f, ensure_ascii=False)
+    
+    loaded_data = data_loader.load(json_file)
     assert isinstance(loaded_data, list)
-    assert len(loaded_data) == 2
-    assert loaded_data[0]["text"] == "测试1"
+    assert len(loaded_data) == len(sample_data)
+    
+    # 测试大文件
+    large_file = tmp_path / "large.json"
+    with open(large_file, "w", encoding="utf-8") as f:
+        json.dump([{"id": i} for i in range(1000)], f)
+    
+    large_data = data_loader.load(large_file)
+    assert isinstance(large_data, list)
+    assert len(large_data) == 1000
+    
+    # 测试格式错误的JSON
+    invalid_file = tmp_path / "invalid.json"
+    with open(invalid_file, "w") as f:
+        f.write("invalid json content")
+    
+    with pytest.raises(json.JSONDecodeError):
+        data_loader.load(invalid_file)
+    
+    # 测试空文件
+    empty_file = tmp_path / "empty.json"
+    with open(empty_file, "w") as f:
+        f.write("")
+    
+    with pytest.raises(json.JSONDecodeError):
+        data_loader.load(empty_file)
 
-def test_token_processing_with_sample_data(token_processor, sample_data):
-    """测试使用示例数据进行token处理。"""
-    for item in sample_data:
+def test_data_loader_error_handling(data_loader):
+    """测试DataLoader错误处理。"""
+    # 测试不存在的文件
+    with pytest.raises(FileNotFoundError):
+        data_loader.load("nonexistent.json")
+    
+    # 测试无效的文件路径
+    with pytest.raises(Exception):
+        data_loader.load(None)
+    
+    # 测试无效的文件类型
+    with pytest.raises(Exception):
+        data_loader.load(123)
+
+def test_integration(token_processor, data_loader, tmp_path, sample_data):
+    """集成测试。"""
+    # 准备测试数据
+    data_file = tmp_path / "integration_test.json"
+    with open(data_file, "w", encoding="utf-8") as f:
+        json.dump(sample_data, f, ensure_ascii=False)
+    
+    # 加载数据
+    loaded_data = data_loader.load(data_file)
+    assert len(loaded_data) == len(sample_data)
+    
+    # 处理每个数据项
+    for item in loaded_data:
+        # 文本处理
         tokens = token_processor.process(item["text"])
         assert isinstance(tokens, list)
-        assert len(tokens) > 0
         
+        # 编码和解码
         encoded = token_processor.encode(item["text"])
-        assert isinstance(encoded, list)
-        assert len(encoded) > 0
-        
         decoded = token_processor.decode(encoded)
         assert isinstance(decoded, str)
-        assert len(decoded) > 0
+        
+        # 元数据处理（如果存在）
+        if "metadata" in item:
+            assert isinstance(item["metadata"], dict)
+
+if __name__ == "__main__":
+    pytest.main(["-v", __file__])

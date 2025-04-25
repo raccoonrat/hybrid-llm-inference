@@ -1,9 +1,10 @@
 """Token处理模块。"""
 
-from typing import List
+from typing import List, Union
 import logging
 import os
 from pathlib import Path
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 logging.basicConfig(level=logging.INFO)
 
@@ -38,63 +39,66 @@ class TokenProcessor:
     DEFAULT_MODEL_NAME = "TinyLlama-1.1B-Chat-v1.0"
     DEFAULT_MODEL_PATH = "models/TinyLlama-1.1B-Chat-v1.0"
     
-    def __init__(self, model_name: str = None, model_path: str = None):
-        """初始化Token处理器。
+    def __init__(self, model_name: str = DEFAULT_MODEL_NAME, model_path: str = DEFAULT_MODEL_PATH):
+        """初始化TokenProcessor。
         
         Args:
-            model_name: 使用的模型名称，默认为TinyLlama
-            model_path: 模型路径，默认为models/TinyLlama目录
+            model_name: 模型名称
+            model_path: 模型路径
         """
         self.logger = logging.getLogger(__name__)
         
-        # 设置默认值
-        self.model_name = model_name or self.DEFAULT_MODEL_NAME
-        self.model_path = model_path or self.DEFAULT_MODEL_PATH
-        
-        try:
-            # 检查是否在测试模式
-            if os.environ.get("TEST_MODE", "").lower() == "true":
-                self.logger.info("在测试模式下运行，使用模拟tokenizer")
-                self.tokenizer = MockTokenizer()
-            else:
-                from transformers import AutoTokenizer
-                # 检查本地模型路径
-                model_dir = Path(self.model_path)
-                if model_dir.exists():
-                    self.logger.info(f"从本地加载tokenizer: {model_dir}")
-                    self.tokenizer = AutoTokenizer.from_pretrained(
-                        model_dir,
-                        trust_remote_code=True
-                    )
-                else:
-                    self.logger.warning(f"本地模型不存在: {model_dir}，尝试从Hugging Face下载")
-                    self.tokenizer = AutoTokenizer.from_pretrained(
-                        self.model_name,
-                        trust_remote_code=True
-                    )
-                    
-                self.logger.info(f"已加载tokenizer: {self.model_name}")
-                
-        except Exception as e:
-            self.logger.error(f"加载tokenizer失败: {str(e)}")
-            raise
+        if not model_name or not isinstance(model_name, str):
+            raise ValueError("模型名称必须是非空字符串")
+        if not model_path or not isinstance(model_path, str):
+            raise ValueError("模型路径必须是非空字符串")
             
-    def process(self, text: str) -> List[str]:
-        """处理文本并返回token列表。
+        self.model_name = model_name
+        self.model_path = model_path
+        
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"模型路径不存在：{model_path}")
+
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+            self.model = AutoModelForCausalLM.from_pretrained(model_path)
+        except Exception as e:
+            self.logger.error(f"加载模型失败：{str(e)}")
+            raise RuntimeError(f"加载模型失败：{str(e)}")
+            
+    def process(self, text: Union[str, List[str]]) -> Union[List[int], List[List[int]]]:
+        """处理文本。
         
         Args:
-            text: 输入文本
+            text: 输入文本或文本列表
             
         Returns:
-            List[str]: token列表
+            处理后的token ID列表
+            
+        Raises:
+            ValueError: 输入无效
+            RuntimeError: 处理失败
         """
+        if text is None:
+            raise ValueError("输入不能为None")
+            
+        if isinstance(text, str):
+            text = [text]
+        elif not isinstance(text, list):
+            raise ValueError("输入必须是字符串或字符串列表")
+            
+        if not all(isinstance(t, str) for t in text):
+            raise ValueError("列表中所有元素必须是字符串")
+            
+        if not text:
+            raise ValueError("输入不能为空")
+
         try:
-            # 对文本进行tokenization
-            tokens = self.tokenizer.tokenize(text)
-            return tokens
+            tokens = self.tokenizer(text, return_tensors="pt", padding=True)
+            return tokens["input_ids"].tolist()
         except Exception as e:
             self.logger.error(f"Token处理失败: {str(e)}")
-            raise
+            raise RuntimeError(f"Token处理失败: {str(e)}")
             
     def encode(self, text: str) -> List[int]:
         """将文本编码为token ID。
