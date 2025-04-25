@@ -14,20 +14,19 @@ logger = logging.getLogger(__name__)
 class TestSystemBenchmarking(SystemBenchmarking):
     """系统基准测试的具体实现。"""
     
-    def __init__(self, config: Dict[str, Any] = None) -> None:
+    def setup_method(self, method) -> None:
         """
-        初始化系统基准测试。
+        在每个测试方法之前设置测试环境。
 
         Args:
-            config: 配置字典，包含所有必要的配置参数
+            method: 测试方法
         """
-        if config is None:
-            config = {}
-        self.dataset_path = config.get("dataset_path")
-        self.hardware_config = config.get("hardware_config", {})
-        self.model_config = config.get("model_config", {})
-        self.scheduler_config = config.get("scheduler_config", {})
-        self.output_dir = config.get("output_dir")
+        self.config = getattr(self, 'config', {})
+        self.dataset_path = self.config.get("dataset_path")
+        self.hardware_config = self.config.get("hardware_config", {})
+        self.model_config = self.config.get("model_config", {})
+        self.scheduler_config = self.config.get("scheduler_config", {})
+        self.output_dir = self.config.get("output_dir")
         self._load_dataset()
         self._init_components()
     
@@ -126,19 +125,18 @@ class TestSystemBenchmarking(SystemBenchmarking):
 class TestModelBenchmarking(ModelBenchmarking):
     """测试用的模型基准测试类。"""
 
-    def __init__(self, config: Dict[str, Any] = None):
-        """初始化测试用的模型基准测试类。
+    def setup_method(self, method):
+        """在每个测试方法之前设置测试环境。
 
         Args:
-            config: 配置字典，包含所有必要的配置参数
+            method: 测试方法
         """
-        if config is None:
-            config = {}
-        self.dataset_path = config.get("dataset_path")
-        self.hardware_config = config.get("hardware_config", {})
-        self.model_config = config.get("model_config", {})
-        self.scheduler_config = config.get("scheduler_config", {})
-        self.output_dir = config.get("output_dir")
+        self.config = getattr(self, 'config', {})
+        self.dataset_path = self.config.get("dataset_path")
+        self.hardware_config = self.config.get("hardware_config", {})
+        self.model_config = self.config.get("model_config", {})
+        self.scheduler_config = self.config.get("scheduler_config", {})
+        self.output_dir = self.config.get("output_dir")
         self._init_components()
 
     def _init_components(self):

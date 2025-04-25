@@ -101,24 +101,26 @@ def output_dir(tmp_path):
 @pytest.fixture
 def system_benchmarking(mock_dataset: str, hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> TestSystemBenchmarking:
     """创建系统基准测试实例"""
-    config = {
+    benchmarking = TestSystemBenchmarking()
+    benchmarking.config = {
         "hardware_config": hardware_config,
         "model_config": model_config,
         "dataset_path": mock_dataset,
         "output_dir": "mock_output"
     }
-    return TestSystemBenchmarking(config)
+    return benchmarking
 
 @pytest.fixture
 def model_benchmarking(mock_dataset: str, hardware_config: Dict[str, Any], model_config: Dict[str, Any]) -> TestModelBenchmarking:
     """创建模型基准测试实例"""
-    config = {
+    benchmarking = TestModelBenchmarking()
+    benchmarking.config = {
         "hardware_config": hardware_config,
         "model_config": model_config,
         "dataset_path": mock_dataset,
         "output_dir": "mock_output"
     }
-    return TestModelBenchmarking(config)
+    return benchmarking
 
 def test_system_benchmarking_initialization(system_benchmarking: TestSystemBenchmarking):
     """测试系统基准测试初始化"""

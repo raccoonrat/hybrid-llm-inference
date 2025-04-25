@@ -137,9 +137,9 @@ class ReportGenerator:
         
         plt.figure(figsize=(10, 6))
         plt.bar(models, energy_per_token)
-        plt.xlabel("模型")
-        plt.ylabel("能量每令牌 (J/token)")
-        plt.title("各模型能量每令牌比较")
+        plt.xlabel("Model")
+        plt.ylabel("Energy per Token (J/token)")
+        plt.title("Energy per Token Comparison")
         plt.savefig(self.output_dir / "energy_per_token.png")
         plt.close()
     
@@ -155,9 +155,9 @@ class ReportGenerator:
         
         plt.figure(figsize=(10, 6))
         plt.bar(models, runtime)
-        plt.xlabel("模型")
-        plt.ylabel("运行时间 (s)")
-        plt.title("各模型运行时间比较")
+        plt.xlabel("Model")
+        plt.ylabel("Runtime (s)")
+        plt.title("Runtime Comparison")
         plt.savefig(self.output_dir / "runtime.png")
         plt.close()
     
@@ -173,11 +173,11 @@ class ReportGenerator:
         runtime = [tradeoff_results[w]["runtime"] for w in weights]
         
         plt.figure(figsize=(10, 6))
-        plt.plot(weights, energy, label="能量")
-        plt.plot(weights, runtime, label="运行时间")
-        plt.xlabel("权重")
-        plt.ylabel("值")
-        plt.title("能量和运行时间的权衡曲线")
+        plt.plot(weights, energy, label="Energy")
+        plt.plot(weights, runtime, label="Runtime")
+        plt.xlabel("Weight")
+        plt.ylabel("Value")
+        plt.title("Energy-Runtime Tradeoff Curve")
         plt.legend()
         plt.savefig(self.output_dir / "tradeoff_curve.png")
         plt.close()
