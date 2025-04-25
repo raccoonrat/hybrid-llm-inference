@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
+import os
 from toolbox.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,6 +28,19 @@ class BaseBenchmarking(ABC):
         """验证基础配置。"""
         if not isinstance(self.config, dict):
             raise ValueError("配置必须是字典类型")
+            
+        required_fields = {
+            "dataset_path": str,
+            "hardware_config": dict,
+            "model_config": dict,
+            "output_dir": str
+        }
+        
+        for field, field_type in required_fields.items():
+            if field not in self.config:
+                raise ValueError(f"{field} 不能为空")
+            if not isinstance(self.config[field], field_type):
+                raise ValueError(f"{field} 必须是 {field_type.__name__} 类型")
     
     @abstractmethod
     def _validate_config(self) -> None:

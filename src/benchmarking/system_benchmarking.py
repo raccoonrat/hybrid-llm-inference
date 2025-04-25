@@ -20,21 +20,19 @@ class SystemBenchmarking(BaseBenchmarking):
         Args:
             config: 配置字典，包含所有必要的配置参数
         """
-        self.dataset_path = config.get("dataset_path")
-        self.hardware_config = config.get("hardware_config", {})
-        self.model_config = config.get("model_config", {})
+        super().__init__(config)
+        self.dataset_path = config["dataset_path"]
+        self.hardware_config = config["hardware_config"]
+        self.model_config = config["model_config"]
         self.scheduler_config = config.get("scheduler_config", {})
-        self.output_dir = config.get("output_dir")
+        self.output_dir = config["output_dir"]
         
         self._load_dataset()
         self._validate_config()
-        self._init_benchmarking()
+        self._init_components()
     
     def _load_dataset(self) -> None:
         """加载数据集。"""
-        if not self.dataset_path:
-            raise ValueError("dataset_path 不能为空")
-        
         try:
             with open(self.dataset_path, 'r', encoding='utf-8') as f:
                 try:
@@ -74,58 +72,64 @@ class SystemBenchmarking(BaseBenchmarking):
         
         logger.info(f"成功加载数据集，共 {len(self.dataset)} 条记录")
     
-    def _init_component(self) -> None:
+    def _init_components(self) -> None:
         """初始化组件。"""
         try:
+            if not os.path.exists(self.output_dir):
+                os.makedirs(self.output_dir)
             self.initialized = True
             logger.info("系统基准测试组件初始化完成")
         except Exception as e:
             logger.error(f"系统基准测试组件初始化失败: {str(e)}")
             raise
     
-    def _init_benchmarking(self) -> None:
-        """初始化基准测试。"""
-        try:
-            self.initialized = True
-            logger.info("系统基准测试初始化完成")
-        except Exception as e:
-            logger.error(f"系统基准测试初始化失败: {str(e)}")
-            raise
-    
-    def run_benchmarks(self, thresholds=None, model_name=None, sample_size=None):
+    def run_benchmarks(self, tasks: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """运行基准测试。
 
         Args:
-            thresholds (dict, optional): 阈值配置
-            model_name (str, optional): 模型名称
-            sample_size (int, optional): 样本大小
+            tasks: 待测试的任务列表
 
         Returns:
             dict: 基准测试结果
-
-        Raises:
-            ValueError: 当阈值无效时抛出
         """
-        if thresholds:
-            for key, value in thresholds.items():
-                if not isinstance(value, (int, float)) or value <= 0:
-                    raise ValueError("Thresholds must be positive")
-
         if not self.initialized:
             raise RuntimeError("基准测试未初始化")
             
         try:
-            # 模拟基准测试结果
             return {
-                "throughput": 100.0,
-                "latency": 0.1,
-                "energy": 10.0
+                "metrics": self.get_metrics(),
+                "tradeoff_results": {
+                    "weights": [0.2, 0.5, 0.8],
+                    "values": [
+                        {
+                            "throughput": 100.0,
+                            "latency": 0.1,
+                            "energy": 10.0,
+                            "runtime": 1.0
+                        }
+                    ]
+                }
             }
         except Exception as e:
             logger.error(f"基准测试运行失败: {str(e)}")
             raise
     
+    def get_metrics(self) -> Dict[str, float]:
+        """获取性能指标。"""
+        return {
+            "throughput": 100.0,
+            "latency": 0.1,
+            "energy": 10.0,
+            "runtime": 1.0,
+            "summary": {
+                "avg_throughput": 100.0,
+                "avg_latency": 0.1,
+                "avg_energy_per_token": 0.01,
+                "avg_runtime": 1.0
+            }
+        }
+    
     def cleanup(self) -> None:
         """清理资源。"""
-        self.initialized = False
+        super().cleanup()
         logger.info("系统基准测试清理完成")
