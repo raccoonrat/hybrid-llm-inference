@@ -1,15 +1,16 @@
 # hybrid-llm-inference/src/model_zoo/base_model.py
 """基础模型模块。"""
 
-import torch
+import os
+if os.getenv('TEST_MODE') != '1':
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Tuple, Union
 from src.toolbox.logger import get_logger
 import logging
-import os
 from pathlib import Path
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 logger = get_logger(__name__)
 
@@ -146,7 +147,7 @@ class BaseModel(ABC):
         Raises:
             NotImplementedError: 子类必须实现此方法
         """
-        pass
+        raise NotImplementedError
         
     def get_metrics(self) -> Dict[str, float]:
         """获取性能指标。
@@ -158,11 +159,18 @@ class BaseModel(ABC):
                 - avg_tokens_per_second: 平均每秒处理的token数
                 - avg_time_per_call: 平均每次调用时间（秒）
         """
-        pass
+        return {
+            "total_tokens": 0,
+            "total_time": 0.0,
+            "avg_tokens_per_second": 0.0,
+            "avg_time_per_call": 0.0
+        }
         
     def reset_metrics(self) -> None:
         """重置性能指标。"""
-        pass
+        self.total_tokens = 0
+        self.total_time = 0.0
+        self.call_count = 0
         
     def initialize(self):
         """初始化模型。"""
