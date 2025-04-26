@@ -132,12 +132,28 @@ def test_token_processing_distribution_single_token(model_path):
     assert list(distribution.values())[0] == 1.0
 
 def test_token_processing_save_distribution_invalid_path(model_path, mock_dataframe):
-    """测试保存分布图到无效路径。"""
+    """测试保存分布图到各种无效路径的情况。"""
     processor = TokenProcessing(model_path)
-    invalid_path = "/nonexistent/directory/plot.png"
     
-    with pytest.raises(Exception):
-        processor.compute_distribution(mock_dataframe, save_path=invalid_path)
+    # 测试不同类型的无效路径
+    invalid_paths = [
+        "/nonexistent/directory/plot.png",  # 不存在的目录
+        "",  # 空路径
+        "invalid",  # 无扩展名
+        "plot",  # 无扩展名
+        "plot.",  # 无效扩展名
+        "plot.invalid",  # 无效扩展名
+        os.path.join("C:", "Windows", "System32", "plot.png")  # 受限目录（仅Windows）
+    ]
+    
+    for invalid_path in invalid_paths:
+        with pytest.raises(ValueError):
+            processor.compute_distribution(mock_dataframe, save_path=invalid_path)
+            
+    # 测试相对路径转换
+    relative_path = "plot.png"
+    with pytest.raises(ValueError, match="必须使用绝对路径"):
+        processor.compute_distribution(mock_dataframe, save_path=relative_path)
 
 def test_token_processing_large_dataset(model_path):
     """测试处理大数据集。"""
