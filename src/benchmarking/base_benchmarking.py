@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 import os
 import shutil
 from toolbox.logger import get_logger
+from toolbox.config_manager import ConfigManager
 
 logger = get_logger(__name__)
 
@@ -17,12 +18,16 @@ class BaseBenchmarking(ABC):
         Args:
             config: 配置字典
         """
-        self.config = config
-        self.dataset_path = config.get("dataset_path")
-        self.output_dir = config.get("output_dir")
-        self.hardware_config = config.get("hardware_config", {})
-        self.model_config = config.get("model_config", {})
-        self.scheduler_config = config.get("scheduler_config", {})
+        # 初始化配置管理器
+        self.config_manager = ConfigManager(config)
+        self.config = self.config_manager.get_config()
+        
+        # 获取基础配置
+        self.dataset_path = self.config.get("dataset_path")
+        self.output_dir = self.config.get("output_dir")
+        self.hardware_config = self.config.get("hardware_config", {})
+        self.model_config = self.config.get("model_config", {})
+        self.scheduler_config = self.config.get("scheduler_config", {})
         self.initialized = False
         self.resources = []  # 用于跟踪需要清理的资源
         
@@ -35,24 +40,26 @@ class BaseBenchmarking(ABC):
     
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
-        if not isinstance(self.config, dict):
-            raise ValueError("配置必须是字典类型")
-            
-        required_fields = {
-            "dataset_path": str,
-            "hardware_config": dict,
-            "model_config": dict,
-            "output_dir": str
-        }
+        if not self.dataset_path:
+            raise ValueError("dataset_path 不能为空")
+        if not self.output_dir:
+            raise ValueError("output_dir 不能为空")
+        if not self.hardware_config:
+            raise ValueError("hardware_config 不能为空")
+        if not self.model_config:
+            raise ValueError("model_config 不能为空")
         
-        for field, field_type in required_fields.items():
-            if field not in self.config:
-                raise ValueError(f"{field} 不能为空")
-            if not isinstance(self.config[field], field_type):
-                raise ValueError(f"{field} 必须是 {field_type.__name__} 类型")
+        # 验证数据集路径
+        if not os.path.exists(self.dataset_path):
+            raise ValueError(f"数据集路径不存在: {self.dataset_path}")
         
-        # 调用子类的配置验证
-        self._validate_config()
+        # 验证模型配置
+        if "model_path" in self.model_config:
+            model_path = self.model_config["model_path"]
+            if not isinstance(model_path, str):
+                raise ValueError("model_path 必须是字符串类型")
+            if not os.path.exists(model_path):
+                raise ValueError(f"模型路径不存在: {model_path}")
     
     def register_resource(self, resource_path: str) -> None:
         """注册需要清理的资源。

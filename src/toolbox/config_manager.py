@@ -1,54 +1,113 @@
 # hybrid-llm-inference/src/toolbox/config_manager.py
-import yaml
+import os
 from pathlib import Path
+from typing import Dict, Any, Optional
 from toolbox.logger import get_logger
 
+logger = get_logger(__name__)
+
 class ConfigManager:
-    def __init__(self, config_dir="configs"):
-        """
-        Initialize ConfigManager for loading YAML configurations.
-        
-        Args:
-            config_dir (str): Directory containing YAML config files.
-        """
-        self.config_dir = Path(config_dir)
-        self.logger = get_logger(__name__)
-        self.configs = {}
+    """配置管理类，用于统一管理模型相关的配置。"""
     
-    def load_config(self, config_file):
-        """
-        Load a YAML configuration file.
-        
+    def __init__(self, config: Dict[str, Any] = None):
+        """初始化配置管理器。
+
         Args:
-            config_file (str): Name of the config file (e.g., 'model_config.yaml').
-        
-        Returns:
-            dict: Parsed configuration.
+            config: 初始配置字典
         """
-        config_path = self.config_dir / config_file
-        if not config_path.exists():
-            self.logger.error(f"Config file not found: {config_path}")
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-        
-        try:
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-            self.configs[config_file] = config
-            self.logger.info(f"Loaded config: {config_path}")
-            return config
-        except yaml.YAMLError as e:
-            self.logger.error(f"Failed to parse YAML: {e}")
-            raise
+        self.config = config or {}
+        self._validate_config()
     
-    def get_config(self, config_file):
-        """
-        Get a previously loaded configuration.
+    def _validate_config(self) -> None:
+        """验证配置的有效性。"""
+        if not isinstance(self.config, dict):
+            raise ValueError("配置必须是字典类型")
         
-        Args:
-            config_file (str): Name of the config file.
-        
+        # 验证模型配置
+        if "model_config" in self.config:
+            model_config = self.config["model_config"]
+            if not isinstance(model_config, dict):
+                raise ValueError("model_config 必须是字典类型")
+            
+            # 验证模型路径
+            if "model_path" in model_config:
+                model_path = model_config["model_path"]
+                if not isinstance(model_path, str):
+                    raise ValueError("model_path 必须是字符串类型")
+                if not os.path.exists(model_path):
+                    raise ValueError(f"模型路径不存在: {model_path}")
+    
+    def get_model_config(self) -> Dict[str, Any]:
+        """获取模型配置。
+
         Returns:
-            dict: Configuration or None if not loaded.
+            Dict[str, Any]: 模型配置字典
         """
-        return self.configs.get(config_file)
+        return self.config.get("model_config", {})
+    
+    def get_model_path(self) -> Optional[str]:
+        """获取模型路径。
+
+        Returns:
+            Optional[str]: 模型路径，如果未配置则返回 None
+        """
+        model_config = self.get_model_config()
+        return model_config.get("model_path")
+    
+    def set_model_path(self, model_path: str) -> None:
+        """设置模型路径。
+
+        Args:
+            model_path: 模型路径
+        """
+        if not isinstance(model_path, str):
+            raise ValueError("model_path 必须是字符串类型")
+        if not os.path.exists(model_path):
+            raise ValueError(f"模型路径不存在: {model_path}")
+        
+        if "model_config" not in self.config:
+            self.config["model_config"] = {}
+        self.config["model_config"]["model_path"] = model_path
+    
+    def get_config(self) -> Dict[str, Any]:
+        """获取完整配置。
+
+        Returns:
+            Dict[str, Any]: 完整配置字典
+        """
+        return self.config
+    
+    def update_config(self, new_config: Dict[str, Any]) -> None:
+        """更新配置。
+
+        Args:
+            new_config: 新的配置字典
+        """
+        self.config.update(new_config)
+        self._validate_config()
+    
+    def save_config(self, file_path: str) -> None:
+        """保存配置到文件。
+
+        Args:
+            file_path: 配置文件路径
+        """
+        import json
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(self.config, f, ensure_ascii=False, indent=4)
+    
+    @classmethod
+    def load_config(cls, file_path: str) -> 'ConfigManager':
+        """从文件加载配置。
+
+        Args:
+            file_path: 配置文件路径
+
+        Returns:
+            ConfigManager: 配置管理器实例
+        """
+        import json
+        with open(file_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return cls(config)
 

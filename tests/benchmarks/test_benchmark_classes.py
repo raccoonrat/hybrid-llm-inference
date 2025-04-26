@@ -10,6 +10,7 @@ from src.benchmarking.system_benchmarking import SystemBenchmarking
 from src.benchmarking.model_benchmarking import ModelBenchmarking
 from src.benchmarking.base_benchmarking import BaseBenchmarking
 from src.benchmarking.report_generator import ReportGenerator
+from src.toolbox.logger import get_logger
 
 @pytest.fixture
 def system_benchmarking():
@@ -92,7 +93,7 @@ def system_benchmarking():
             if os.path.exists(self.output_dir):
                 shutil.rmtree(self.output_dir)
     
-    return TestSystemBenchmarking()
+    return TestSystemBenchmarking
 
 @pytest.fixture
 def model_benchmarking():
@@ -138,15 +139,21 @@ def model_benchmarking():
                 }
             }
         
-        def run_benchmarks(self):
+        def run_benchmarks(self, tasks=None):
             """运行基准测试。"""
-            self._init_components()
             metrics = self.get_metrics()
             return {
                 "metrics": metrics,
                 "tradeoff_results": {
-                    "weights": [0.3, 0.3, 0.4],
-                    "values": [metrics]
+                    "weights": [0.2, 0.5, 0.8],
+                    "values": [
+                        {
+                            "throughput": metrics["throughput"],
+                            "latency": metrics["latency"],
+                            "energy": metrics["energy"],
+                            "runtime": metrics["runtime"]
+                        }
+                    ]
                 }
             }
         
@@ -155,10 +162,15 @@ def model_benchmarking():
             if os.path.exists(self.output_dir):
                 shutil.rmtree(self.output_dir)
     
-    return TestModelBenchmarking()
+    return TestModelBenchmarking
 
 class TestSystemBenchmarking(SystemBenchmarking):
     """系统基准测试测试类。"""
+    
+    def __init__(self, config):
+        """初始化测试用系统基准测试。"""
+        super().__init__(config)
+        self.logger = get_logger(__name__)
     
     def setup_method(self):
         """设置测试环境。"""

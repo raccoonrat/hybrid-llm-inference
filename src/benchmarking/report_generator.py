@@ -349,12 +349,12 @@ class ReportGenerator:
             self.logger.error(f"绘制权衡曲线时发生错误: {str(e)}")
             raise
 
-    def generate_report(self, data, output_dir, output_format="markdown"):
+    def generate_report(self, data, tradeoff_results=None, output_format="markdown"):
         """生成基准测试报告。
 
         Args:
             data (dict): 基准测试数据
-            output_dir (str): 输出目录
+            tradeoff_results (dict, optional): 权衡分析结果
             output_format (str): 输出格式，支持 "markdown"、"html"、"pdf"
 
         Returns:
@@ -365,21 +365,22 @@ class ReportGenerator:
             self._validate_data(data)
             
             # 创建输出目录
-            os.makedirs(output_dir, exist_ok=True)
+            os.makedirs(self.output_dir, exist_ok=True)
             
             # 根据数据类型生成不同的报告
             if all(field in data for field in ["metrics", "parallel_metrics", "scheduling_metrics"]):
-                return self._generate_system_report(data, output_dir, output_format)
+                report_path = os.path.join(self.output_dir, f"report.{output_format}")
+                self._generate_system_report(data, report_path, output_format)
             else:
-                return self._generate_model_report(data, output_dir, output_format)
+                report_path = os.path.join(self.output_dir, f"model_benchmark_report.{output_format}")
+                self._generate_model_report(data, report_path, output_format)
+            return report_path
         except Exception as e:
             self.logger.error(f"生成报告时发生错误: {str(e)}")
             raise
 
-    def _generate_system_report(self, data, output_dir, output_format):
+    def _generate_system_report(self, data, report_path, output_format):
         """生成系统基准测试报告。"""
-        report_path = os.path.join(output_dir, f"benchmark_report.{output_format}")
-        
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("# 基准测试报告\n\n")
             
@@ -394,16 +395,12 @@ class ReportGenerator:
                 f.write(f"- {key}: {value}\n")
                 
             # 生成权衡曲线
-            curve_path = os.path.join(output_dir, "tradeoff_curve.png")
+            curve_path = os.path.join(os.path.dirname(report_path), "tradeoff_curve.png")
             self._plot_tradeoff_curve(data, curve_path)
             f.write(f"\n## 权衡曲线\n\n![权衡曲线]({os.path.basename(curve_path)})\n")
-            
-        return report_path
 
-    def _generate_model_report(self, data, output_dir, output_format):
+    def _generate_model_report(self, data, report_path, output_format):
         """生成模型基准测试报告。"""
-        report_path = os.path.join(output_dir, f"model_benchmark_report.{output_format}")
-        
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("# 模型基准测试报告\n\n")
             
@@ -423,9 +420,7 @@ class ReportGenerator:
                 f.write("\n")
                 
             # 生成性能对比图
-            self._plot_model_comparison(data, output_dir)
-            
-        return report_path
+            self._plot_model_comparison(data, os.path.dirname(report_path))
 
     def _plot_model_comparison(self, data, output_dir):
         """绘制模型性能对比图。"""
