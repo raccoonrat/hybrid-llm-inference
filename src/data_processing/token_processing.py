@@ -15,12 +15,77 @@ import seaborn as sns
 import re
 import time
 import psutil
+import tempfile
 
 # 设置中文字体
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 logging.basicConfig(level=logging.INFO)
+
+class DataProcessor:
+    """数据处理基类。"""
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+
+    def validate_data(self, data: Union[pd.DataFrame, List[Dict]]) -> bool:
+        """验证数据格式。
+
+        Args:
+            data: 输入数据
+
+        Returns:
+            bool: 数据是否有效
+        """
+        if isinstance(data, pd.DataFrame):
+            return not data.empty
+        elif isinstance(data, list):
+            return len(data) > 0
+        return False
+
+    def process_batch(self, data: Union[pd.DataFrame, List[Dict]]) -> pd.DataFrame:
+        """处理数据批次。
+
+        Args:
+            data: 输入数据
+
+        Returns:
+            pd.DataFrame: 处理后的数据
+        """
+        if not self.validate_data(data):
+            raise ValueError("无效的输入数据")
+        return pd.DataFrame(data)
+
+class AlpacaLoader:
+    """Alpaca数据集加载器。"""
+    def __init__(self, data_path: str):
+        self.data_path = data_path
+        self.logger = logging.getLogger(__name__)
+
+    def validate_entry(self, entry: Dict) -> bool:
+        """验证数据条目。
+
+        Args:
+            entry: 数据条目
+
+        Returns:
+            bool: 条目是否有效
+        """
+        required_fields = ['instruction', 'input', 'output']
+        return all(field in entry for field in required_fields)
+
+    def get_statistics(self) -> Dict:
+        """获取数据集统计信息。
+
+        Returns:
+            Dict: 统计信息
+        """
+        stats = {
+            'total_entries': 0,
+            'valid_entries': 0,
+            'invalid_entries': 0
+        }
+        return stats
 
 class TokenProcessing:
     def __init__(self, model_path: str):
@@ -216,21 +281,26 @@ class TokenProcessing:
             all_tokens = []
             total_tokens = 0
             batch_size = 1000  # 批处理大小
-            
+
             for i in range(0, len(df), batch_size):
                 batch = df.iloc[i:i+batch_size]
                 for tokens in batch[token_column]:
+                    if tokens is None or (isinstance(tokens, list) and not tokens):
+                        continue
                     if isinstance(tokens, list):
-                        all_tokens.extend(map(str, tokens))
-                        total_tokens += len(tokens)
+                        valid_tokens = [str(t) for t in tokens if t is not None and str(t).strip()]
+                        all_tokens.extend(valid_tokens)
+                        total_tokens += len(valid_tokens)
                     else:
-                        all_tokens.append(str(tokens))
-                        total_tokens += 1
-                
+                        token_str = str(tokens).strip()
+                        if token_str:
+                            all_tokens.append(token_str)
+                            total_tokens += 1
+
                 # 检查内存使用
                 if process.memory_info().rss > 1024 * 1024 * 1024:  # 1GB限制
                     raise MemoryError("内存使用过高，请减少输入数据量")
-                
+
                 # 报告进度
                 if i % 10000 == 0:
                     self.logger.info(f"已处理 {i}/{len(df)} 行数据")
@@ -252,9 +322,18 @@ class TokenProcessing:
                 except ValueError as e:
                     self.logger.error(f"保存分布图时出错: {str(e)}")
                     raise
+                except Exception as e:
+                    self.logger.error(f"保存分布图时出错: {str(e)}")
+                    raise ValueError(f"保存分布图时出错: {str(e)}")
 
             return distribution
-            
+
+        except MemoryError as e:
+            self.logger.error(f"内存不足: {str(e)}")
+            raise
+        except ValueError as e:
+            self.logger.error(f"无效的输入或路径: {str(e)}")
+            raise
         except Exception as e:
             self.logger.error(f"计算分布时出错: {str(e)}")
             raise RuntimeError(f"计算分布时出错: {str(e)}")
@@ -263,85 +342,91 @@ class TokenProcessing:
         """保存分布图到指定路径。
 
         Args:
-            distribution (Dict[str, float]): token分布字典
-            save_path (str): 保存路径
+            distribution: token分布字典
+            save_path: 保存路径
 
         Raises:
             ValueError: 当路径无效或没有写入权限时
         """
-        if not save_path or save_path.isspace():
-            raise ValueError("保存路径不能为空或只包含空格")
+        if not save_path or not isinstance(save_path, str):
+            raise ValueError("保存路径不能为空")
 
-        # 标准化路径
-        try:
-            save_path = os.path.abspath(save_path)
-        except Exception as e:
-            raise ValueError(f"无效的路径格式: {str(e)}")
+        # 规范化路径
+        save_path = os.path.abspath(save_path)
+        save_dir = os.path.dirname(save_path)
+        filename = os.path.basename(save_path)
 
         # 检查文件扩展名
-        if not save_path.lower().endswith('.png'):
-            raise ValueError("文件扩展名必须是.png")
-
-        # 分离目录和文件名
-        dir_path = os.path.dirname(save_path)
-        file_name = os.path.basename(save_path)
-
-        # 检查文件名是否为空或只包含空格
-        if not file_name or file_name.isspace():
-            raise ValueError("文件名不能为空或只包含空格")
-
-        # 检查目录是否存在
-        if not os.path.exists(dir_path):
-            raise ValueError(f"目录不存在: {dir_path}")
-
-        # 检查目录权限
-        if not os.access(dir_path, os.W_OK):
-            raise ValueError(f"没有目录写入权限: {dir_path}")
+        if not filename.lower().endswith('.png'):
+            raise ValueError("文件必须是PNG格式")
 
         # Windows特定检查
         if os.name == 'nt':
-            # 检查保留名称
+            # 检查Windows保留名称
             reserved_names = {'con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4',
                             'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3',
                             'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'}
-            base_name = file_name.split('.')[0].lower()
-            if base_name in reserved_names:
-                raise ValueError(f"文件名不能使用Windows保留名称: {base_name}")
+            name_without_ext = os.path.splitext(filename)[0].lower()
+            if name_without_ext in reserved_names:
+                raise ValueError("文件名不能使用Windows保留名称")
 
-            # 检查无效字符
-            invalid_chars = '<>:"|?*\\'
-            if any(char in file_name for char in invalid_chars):
-                raise ValueError("文件名包含无效字符")
+            # 检查Windows路径长度
+            if len(save_path) > 260:
+                raise ValueError("文件路径过长")
 
-            # 检查长路径
-            if len(save_path) > 260 and not save_path.startswith('\\\\?\\'):
-                raise ValueError("路径长度超过Windows限制(260字符)")
+            # 检查Windows非法字符
+            invalid_chars = r'[<>:"/\\|?*]'
+            if re.search(invalid_chars, filename):
+                raise ValueError("文件名包含非法字符")
 
-            # 检查UNC路径
-            if save_path.startswith('\\\\'):
-                if not os.path.exists(dir_path):
-                    raise ValueError("无法访问网络路径")
-                try:
-                    # 尝试访问网络路径
-                    os.listdir(dir_path)
-                except Exception as e:
-                    raise ValueError(f"无法访问网络路径: {str(e)}")
+        # 检查目录是否存在，如果不存在则创建
+        if not os.path.exists(save_dir):
+            try:
+                os.makedirs(save_dir)
+            except Exception as e:
+                raise ValueError(f"无法创建目录: {str(e)}")
 
-        # 检查文件是否已存在且有写入权限
-        if os.path.exists(save_path):
-            if not os.access(save_path, os.W_OK):
-                raise ValueError(f"没有文件写入权限: {save_path}")
+        # 检查写入权限
+        if os.path.exists(save_dir):
+            test_file = os.path.join(save_dir, '.test_write')
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+            except Exception:
+                raise ValueError("没有写入权限")
 
-        # 生成并保存图表
         try:
+            # 创建图表
             plt.figure(figsize=(12, 6))
-            sns.barplot(x=list(distribution.keys()), y=list(distribution.values()))
+            plt.clf()
+            tokens = list(distribution.keys())
+            frequencies = list(distribution.values())
+            
+            # 使用seaborn创建条形图
+            sns.barplot(x=tokens, y=frequencies)
+            plt.xticks(rotation=45, ha='right')
             plt.title('Token分布')
             plt.xlabel('Token')
             plt.ylabel('频率')
-            plt.xticks(rotation=45)
+            
+            # 保存图表
             plt.tight_layout()
-            plt.savefig(save_path)
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close()
+            
+            self.logger.info(f"分布图已保存到: {save_path}")
         except Exception as e:
-            raise ValueError(f"保存图表时出错: {str(e)}")
+            plt.close()
+            raise ValueError(f"保存分布图时出错: {str(e)}")
+
+    def cleanup(self) -> None:
+        """清理资源。
+
+        清理所有打开的文件句柄和图表资源。
+        """
+        try:
+            # 关闭所有matplotlib图表
+            plt.close('all')
+        except Exception as e:
+            self.logger.warning(f"清理图表资源时出错: {str(e)}")
