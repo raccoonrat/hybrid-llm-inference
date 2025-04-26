@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Plot files
+plot.png
+*.plot.png
+
 # C extensions
 *.so
 
