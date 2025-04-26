@@ -94,8 +94,14 @@ class ModelBenchmarking(BaseBenchmarking):
             raise RuntimeError("基准测试未初始化")
             
         try:
+            metrics = self.get_metrics()
             return {
-                "metrics": self.get_metrics(),
+                "metrics": {
+                    "throughput": float(metrics["throughput"]),
+                    "latency": float(metrics["latency"]),
+                    "energy": float(metrics["energy"]),
+                    "runtime": float(metrics["runtime"])
+                },
                 "tradeoff_results": {
                     "weights": [0.2, 0.5, 0.8],
                     "values": [

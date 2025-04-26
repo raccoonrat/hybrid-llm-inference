@@ -118,7 +118,7 @@ class RTX4050Profiler(HardwareProfiler):
     
     def __init__(self, config: Dict[str, Any]) -> None:
         """初始化 RTX 4050 性能分析器。
-
+        
         Args:
             config: 配置字典，包含以下字段：
                 - device_id: 设备 ID
@@ -126,6 +126,9 @@ class RTX4050Profiler(HardwareProfiler):
                 - idle_power: 空闲功率
                 - sample_interval: 采样间隔
         """
+        # 调用父类初始化
+        super().__init__(config)
+        
         self.device_id = config.get("device_id", 0)
         self.device_type = config.get("device_type", "gpu")
         self.idle_power = config.get("idle_power", 15.0)
@@ -136,12 +139,9 @@ class RTX4050Profiler(HardwareProfiler):
         self.nvml_initialized = False
         self.is_measuring = False
         self.is_test_mode = os.getenv('TEST_MODE') == '1'
-
+        
         # 验证配置
         self._validate_config()
-        
-        # 调用父类初始化
-        super().__init__()
         
         # 初始化分析器
         self._init_profiler()

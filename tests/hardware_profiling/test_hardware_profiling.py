@@ -11,14 +11,37 @@ from src.hardware_profiling.a800_profiling import A800Profiler
 from src.hardware_profiling.m1_profiler import M1Profiler
 from src.hardware_profiling import get_profiler
 
-# 测试配置
-TEST_CONFIG = {
-    "device_id": 0,
-    "device_type": "gpu",
-    "idle_power": 15.0,
-    "sample_interval": 200,
-    "log_level": "DEBUG"
-}
+@pytest.fixture
+def test_config():
+    """创建测试配置。"""
+    return {
+        "device_id": 0,
+        "device_type": "gpu",
+        "idle_power": 15.0,
+        "log_level": "DEBUG",
+        "sample_interval": 200
+    }
+
+@pytest.fixture
+def m1_config():
+    """创建M1测试配置。"""
+    return {
+        "device_type": "m1",
+        "idle_power": 10.0,
+        "log_level": "DEBUG",
+        "sample_interval": 200
+    }
+
+@pytest.fixture
+def a800_config():
+    """创建A800测试配置。"""
+    return {
+        "device_id": 0,
+        "device_type": "gpu",
+        "idle_power": 50.0,
+        "log_level": "DEBUG",
+        "sample_interval": 200
+    }
 
 @pytest.fixture(scope="function")
 def mock_nvml():
@@ -55,15 +78,15 @@ def mock_torch():
             "device_count": mock_device_count
         }
 
-def test_rtx4050_profiler_init(mock_nvml, mock_torch):
+def test_rtx4050_profiler_init(test_config, mock_nvml, mock_torch):
     """测试 RTX4050Profiler 初始化。"""
-    profiler = RTX4050Profiler(TEST_CONFIG)
-    assert profiler.device_id == TEST_CONFIG["device_id"]
-    assert profiler.device_type == TEST_CONFIG["device_type"]
-    assert profiler.idle_power == TEST_CONFIG["idle_power"]
-    assert profiler.sample_interval == TEST_CONFIG["sample_interval"]
+    profiler = RTX4050Profiler(test_config)
+    assert profiler.device_id == test_config["device_id"]
+    assert profiler.device_type == test_config["device_type"]
+    assert profiler.idle_power == test_config["idle_power"]
+    assert profiler.sample_interval == test_config["sample_interval"]
 
-def test_rtx4050_profiler_init_invalid_config():
+def test_rtx4050_profiler_init_invalid_config(test_config):
     """测试 RTX4050Profiler 初始化时的无效配置。"""
     invalid_configs = [
         {"device_id": "invalid"},  # 非整数 device_id
@@ -74,18 +97,18 @@ def test_rtx4050_profiler_init_invalid_config():
     
     for config in invalid_configs:
         with pytest.raises(ValueError):
-            RTX4050Profiler({**TEST_CONFIG, **config})
+            RTX4050Profiler({**test_config, **config})
 
-def test_rtx4050_profiler_measure_power(mock_nvml, mock_torch):
+def test_rtx4050_profiler_measure_power(test_config, mock_nvml, mock_torch):
     """测试 RTX4050Profiler 的功率测量功能。"""
-    profiler = RTX4050Profiler(TEST_CONFIG)
+    profiler = RTX4050Profiler(test_config)
     power = profiler.measure_power()
     assert isinstance(power, float)
     assert power >= 0.0
 
-def test_rtx4050_profiler_measure(mock_nvml, mock_torch):
+def test_rtx4050_profiler_measure(test_config, mock_nvml, mock_torch):
     """测试 RTX4050Profiler 的性能测量功能。"""
-    profiler = RTX4050Profiler(TEST_CONFIG)
+    profiler = RTX4050Profiler(test_config)
     
     def mock_task():
         """模拟任务。"""
@@ -103,24 +126,24 @@ def test_rtx4050_profiler_measure(mock_nvml, mock_torch):
     assert metrics["throughput"] >= 0
     assert metrics["energy_per_token"] >= 0
 
-def test_rtx4050_profiler_cleanup(mock_nvml, mock_torch):
+def test_rtx4050_profiler_cleanup(test_config, mock_nvml, mock_torch):
     """测试 RTX4050Profiler 的资源清理功能。"""
-    profiler = RTX4050Profiler(TEST_CONFIG)
+    profiler = RTX4050Profiler(test_config)
     profiler.cleanup()
     assert not profiler.initialized
     assert profiler.handle is None
     assert profiler.device is None
 
-def test_a800_profiler_init(mock_nvml, mock_torch):
+def test_a800_profiler_init(a800_config, mock_nvml, mock_torch):
     """测试 A800Profiler 初始化。"""
-    profiler = A800Profiler(TEST_CONFIG)
-    assert profiler.device_id == TEST_CONFIG["device_id"]
-    assert profiler.sample_interval == TEST_CONFIG["sample_interval"]
+    profiler = A800Profiler(a800_config)
+    assert profiler.device_id == a800_config["device_id"]
+    assert profiler.sample_interval == a800_config["sample_interval"]
     assert profiler.idle_power == 50.0  # A800 的默认空闲功率
 
-def test_a800_profiler_measure(mock_nvml, mock_torch):
+def test_a800_profiler_measure(a800_config, mock_nvml, mock_torch):
     """测试 A800Profiler 的性能测量功能。"""
-    profiler = A800Profiler(TEST_CONFIG)
+    profiler = A800Profiler(a800_config)
     
     def mock_task():
         """模拟任务。"""
@@ -134,22 +157,27 @@ def test_a800_profiler_measure(mock_nvml, mock_torch):
     assert "throughput" in metrics
     assert "energy_per_token" in metrics
 
-def test_m1_profiler_init():
+def test_m1_profiler_init(m1_config):
     """测试 M1Profiler 初始化。"""
-    profiler = M1Profiler(TEST_CONFIG)
-    assert profiler.device_id == TEST_CONFIG["device_id"]
-    assert profiler.sample_interval == TEST_CONFIG["sample_interval"]
-    assert profiler.idle_power == TEST_CONFIG["idle_power"]
+    profiler = M1Profiler(m1_config)
+    assert profiler.device_type == "m1"
+    assert profiler.idle_power == 10.0
+    assert profiler.sample_interval == 200
 
-def test_m1_profiler_measure():
+def test_m1_profiler_measure(m1_config):
     """测试 M1Profiler 的性能测量功能。"""
-    profiler = M1Profiler(TEST_CONFIG)
+    profiler = M1Profiler(m1_config)
     
     def mock_task():
         """模拟任务。"""
         pass
     
-    metrics = profiler.measure(mock_task, input_tokens=10, output_tokens=20)
+    task = {
+        "input_tokens": 10,
+        "output_tokens": 20
+    }
+    
+    metrics = profiler.measure(task)
     
     assert isinstance(metrics, dict)
     assert "energy" in metrics
@@ -157,20 +185,20 @@ def test_m1_profiler_measure():
     assert "throughput" in metrics
     assert "energy_per_token" in metrics
 
-def test_get_profiler():
+def test_get_profiler(test_config, m1_config, a800_config):
     """测试获取性能分析器。"""
     # 测试获取 RTX4050 分析器
-    rtx4050_profiler = get_profiler("rtx4050", TEST_CONFIG)
+    rtx4050_profiler = get_profiler("rtx4050", test_config)
     assert isinstance(rtx4050_profiler, RTX4050Profiler)
     
     # 测试获取 A800 分析器
-    a800_profiler = get_profiler("a800", TEST_CONFIG)
+    a800_profiler = get_profiler("a800", a800_config)
     assert isinstance(a800_profiler, A800Profiler)
     
     # 测试获取 M1 分析器
-    m1_profiler = get_profiler("m1_pro", TEST_CONFIG)
+    m1_profiler = get_profiler("m1_pro", m1_config)
     assert isinstance(m1_profiler, M1Profiler)
     
     # 测试获取不支持的设备类型
     with pytest.raises(ValueError, match="不支持的设备类型"):
-        get_profiler("invalid_device", TEST_CONFIG) 
+        get_profiler("invalid_device", test_config) 

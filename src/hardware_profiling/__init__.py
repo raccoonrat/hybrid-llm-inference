@@ -4,6 +4,7 @@
 from .base_profiler import HardwareProfiler
 from .rtx4050_profiler import RTX4050Profiler
 from .m1_profiler import M1Profiler
+from .a800_profiling import A800Profiler
 
 import os
 import logging
@@ -16,7 +17,7 @@ def get_profiler(device_type: str, config: Dict[str, Any]) -> HardwareProfiler:
     """获取性能分析器实例。
     
     Args:
-        device_type: 设备类型，支持 "rtx4050" 和 "m1_pro"
+        device_type: 设备类型，支持 "rtx4050"、"a800" 和 "m1_pro"
         config: 配置字典，必须包含设备特定的配置参数
         
     Returns:
@@ -27,6 +28,8 @@ def get_profiler(device_type: str, config: Dict[str, Any]) -> HardwareProfiler:
     """
     if device_type == "rtx4050":
         return RTX4050Profiler(config)
+    elif device_type == "a800":
+        return A800Profiler(config)
     elif device_type == "m1_pro":
         return M1Profiler(config)
     else:
