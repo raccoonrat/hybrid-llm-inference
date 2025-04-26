@@ -38,7 +38,7 @@ class TokenDistribution:
             save_path: 图表保存路径
             
         Returns:
-            Dict: 分析结果
+            Dict: 分析结果，包含分布和统计信息
             
         Raises:
             ValueError: 模型不存在
@@ -93,36 +93,85 @@ class TokenDistribution:
             }
         }
         
-        # 保存分布和统计信息
-        dist_path = self.output_dir / "token_distribution.pkl"
-        with open(dist_path, "wb") as f:
-            pickle.dump({"distribution": self.distribution, "stats": self.stats}, f)
-        self.logger.info(f"已保存token分布和统计信息到{dist_path}")
-        
         # 可视化分布
         self._visualize_distribution(save_path)
-        return self.stats
+        
+        # 返回分布和统计信息
+        return self.distribution
+
+    def save_distribution(self, save_path: str) -> None:
+        """保存分布结果到文件。
+        
+        Args:
+            save_path: 保存路径
+            
+        Raises:
+            ValueError: 当分布未计算、文件已存在或保存失败时
+        """
+        if self.distribution is None or self.stats is None:
+            raise ValueError("分布未计算，请先调用analyze()")
+            
+        save_path = Path(save_path)
+        if save_path.exists():
+            raise ValueError("文件已存在")
+            
+        try:
+            data = {
+                "distribution": self.distribution,
+                "stats": self.stats
+            }
+            with open(save_path, "wb") as f:
+                pickle.dump(data, f)
+            self.logger.info(f"分布数据已保存到：{save_path}")
+        except Exception as e:
+            self.logger.error(f"保存分布数据时出错：{e}")
+            raise ValueError(f"保存分布数据失败：{str(e)}")
+            
+    def load_distribution(self, load_path: str) -> Dict:
+        """从文件加载分布结果。
+        
+        Args:
+            load_path: 加载路径
+            
+        Returns:
+            Dict: 加载的分布数据
+            
+        Raises:
+            ValueError: 当文件不存在或加载失败时
+        """
+        try:
+            with open(load_path, "rb") as f:
+                data = pickle.load(f)
+            self.distribution = data["distribution"]
+            self.stats = data["stats"]
+            self.logger.info(f"已从{load_path}加载分布数据")
+            return self.distribution
+        except FileNotFoundError:
+            raise ValueError(f"文件不存在：{load_path}")
+        except Exception as e:
+            self.logger.error(f"加载分布数据时出错：{e}")
+            raise ValueError(f"加载分布数据失败：{str(e)}")
         
     def _visualize_distribution(self, save_path: Optional[str] = None):
-        """生成并保存token分布图。"""
+        """Generate and save token distribution plots."""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
         
-        # 输入token
+        # Input tokens
         input_dist = self.distribution["input_distribution"]
         ax1.bar(list(input_dist.keys()), list(input_dist.values()), width=10)
-        ax1.set_title("输入Token分布")
-        ax1.set_xlabel("Token数量")
-        ax1.set_ylabel("频率")
-        ax1.set_yscale("log")  # 使用对数尺度以便更好地可视化
+        ax1.set_title("Input Token Distribution")
+        ax1.set_xlabel("Token Count")
+        ax1.set_ylabel("Frequency")
+        ax1.set_yscale("log")  # Use log scale for better visualization
         ax1.grid(True, which="both", ls="--")
         ax1.set_xlim(0, 2048)
         
-        # 输出token
+        # Output tokens
         output_dist = self.distribution["output_distribution"]
         ax2.bar(list(output_dist.keys()), list(output_dist.values()), width=10)
-        ax2.set_title("输出Token分布")
-        ax2.set_xlabel("Token数量")
-        ax2.set_ylabel("频率")
+        ax2.set_title("Output Token Distribution")
+        ax2.set_xlabel("Token Count")
+        ax2.set_ylabel("Frequency")
         ax2.set_yscale("log")
         ax2.grid(True, which="both", ls="--")
         ax2.set_xlim(0, 4096)
@@ -131,14 +180,14 @@ class TokenDistribution:
         plot_path = self.output_dir / "token_distribution.png"
         plt.savefig(plot_path)
         plt.close()
-        self.logger.info(f"已保存分布图到{plot_path}")
+        self.logger.info(f"Distribution plot saved to {plot_path}")
         
         if save_path:
             try:
                 plt.savefig(save_path)
-                self.logger.info(f"图表已保存到：{save_path}")
+                self.logger.info(f"Plot saved to: {save_path}")
             except Exception as e:
-                self.logger.error(f"保存图表时出错：{e}")
+                self.logger.error(f"Error saving plot: {e}")
                 raise
         
     def get_distribution(self):

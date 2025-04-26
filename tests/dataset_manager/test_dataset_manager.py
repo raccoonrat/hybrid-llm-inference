@@ -173,4 +173,93 @@ def test_token_distribution_load_distribution(mock_dataframe, mock_models, tmp_p
     
     loaded_distribution = TokenDistribution(mock_dataframe, mock_models, str(tmp_path))
     loaded_distribution.load_distribution(str(save_path))
-    assert loaded_distribution.distribution is not None 
+    assert loaded_distribution.distribution is not None
+
+def test_token_distribution_boundary_conditions(mock_dataframe, mock_models, tmp_path):
+    """测试边界条件下的token分布分析。"""
+    # 测试空DataFrame
+    empty_df = pd.DataFrame(columns=["instruction", "output"])
+    distribution = TokenDistribution(empty_df, mock_models, str(tmp_path))
+    result = distribution.analyze("llama3")
+    assert result == {"input_distribution": {}, "output_distribution": {}}
+    
+    # 测试只包含边界值的DataFrame
+    boundary_df = pd.DataFrame({
+        "instruction": ["a" * 8, "a" * 2048],  # 最小和最大输入长度
+        "output": ["b" * 4096, ""]  # 最大输出长度和空输出
+    })
+    distribution = TokenDistribution(boundary_df, mock_models, str(tmp_path))
+    result = distribution.analyze("llama3")
+    assert "input_distribution" in result
+    assert "output_distribution" in result
+    
+def test_token_distribution_error_handling(mock_dataframe, mock_models, tmp_path):
+    """测试错误处理路径。"""
+    distribution = TokenDistribution(mock_dataframe, mock_models, str(tmp_path))
+    
+    # 测试无效的模型名称
+    with pytest.raises(ValueError, match="Model invalid_model not found"):
+        distribution.analyze("invalid_model")
+        
+    # 测试保存分布前未调用analyze
+    with pytest.raises(ValueError, match="分布未计算"):
+        distribution.save_distribution(str(tmp_path / "test.pkl"))
+        
+    # 测试加载不存在的文件
+    with pytest.raises(ValueError, match="文件不存在"):
+        distribution.load_distribution(str(tmp_path / "nonexistent.pkl"))
+        
+def test_token_distribution_visualization(mock_dataframe, mock_models, tmp_path):
+    """测试可视化功能。"""
+    distribution = TokenDistribution(mock_dataframe, mock_models, str(tmp_path))
+    distribution.analyze("llama3")
+    
+    # 测试保存到指定路径
+    custom_path = tmp_path / "custom_plot.png"
+    distribution.analyze("llama3", str(custom_path))
+    assert custom_path.exists()
+    
+    # 测试保存到无效路径
+    invalid_path = tmp_path / "invalid" / "plot.png"
+    with pytest.raises(Exception):
+        distribution.analyze("llama3", str(invalid_path))
+        
+def test_token_distribution_save_load_errors(mock_dataframe, mock_models, tmp_path):
+    """测试保存和加载时的错误处理。"""
+    distribution = TokenDistribution(mock_dataframe, mock_models, str(tmp_path))
+    distribution.analyze("llama3")
+    
+    # 测试保存到不存在的目录
+    invalid_dir = tmp_path / "nonexistent" / "test.pkl"
+    with pytest.raises(ValueError, match="保存分布数据失败"):
+        distribution.save_distribution(str(invalid_dir))
+        
+    # 测试加载损坏的文件
+    corrupt_file = tmp_path / "corrupt.pkl"
+    with open(corrupt_file, "wb") as f:
+        f.write(b"invalid pickle data")
+    with pytest.raises(ValueError, match="加载分布数据失败"):
+        distribution.load_distribution(str(corrupt_file))
+        
+    # 测试保存到已存在的文件
+    existing_file = tmp_path / "existing.pkl"
+    existing_file.touch()
+    with pytest.raises(ValueError, match="文件已存在"):
+        distribution.save_distribution(str(existing_file))
+        
+def test_token_distribution_get_distribution(mock_dataframe, mock_models, tmp_path):
+    """测试获取分布信息的方法。"""
+    distribution = TokenDistribution(mock_dataframe, mock_models, str(tmp_path))
+    
+    # 测试未分析时获取分布
+    empty_dist, empty_stats = distribution.get_distribution()
+    assert empty_dist == {}
+    assert empty_stats == {}
+    
+    # 测试分析后获取分布
+    distribution.analyze("llama3")
+    dist, stats = distribution.get_distribution()
+    assert "input_distribution" in dist
+    assert "output_distribution" in dist
+    assert "input" in stats
+    assert "output" in stats 
