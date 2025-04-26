@@ -23,52 +23,85 @@ class TokenProcessing:
         self.logger = logging.getLogger(__name__)
         
     def process_tokens(self, texts: List[str]) -> pd.DataFrame:
-        """处理文本并返回包含 token 数据的 DataFrame"""
+        """处理文本并返回包含 token 数据的 DataFrame
+        
+        Args:
+            texts: 输入文本列表
+            
+        Returns:
+            pd.DataFrame: 包含 token 数据的 DataFrame
+            
+        Raises:
+            ValueError: 当输入为 None 时
+        """
+        if texts is None:
+            raise ValueError("输入文本列表不能为 None")
+            
         results = []
         for text in texts:
+            # 将非字符串类型转换为字符串
+            if not isinstance(text, str):
+                text = str(text) if text is not None else ""
             result = self.processor.process_text(text)
             results.append(result)
         return pd.DataFrame(results)
         
     def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict[str, float]:
-        """计算 token 分布
-        
-        Args:
-            df: 包含 token 数据的 DataFrame
-            save_path: 保存分布图的路径（可选）
+        """计算token分布并可选地保存分布图"""
+        if df is None:
+            raise ValueError("输入数据不能为None")
             
-        Returns:
-            Dict[str, float]: token 分布字典，key 为 token，value 为频率
-        """
-        if df.empty or 'input_tokens' not in df.columns:
-            self.logger.warning("输入数据为空或缺少 input_tokens 列")
+        if df.empty:
+            self.logger.warning("输入数据为空")
+            return {}
+            
+        # 检查必要的列
+        if 'input_tokens' not in df.columns and 'token' not in df.columns:
+            self.logger.warning("输入数据缺少token列")
             return {}
             
         try:
-            # 收集所有 token
-            all_tokens = []
-            for tokens in df['input_tokens']:
-                all_tokens.extend(tokens)
-                
-            # 计算唯一 token 及其频率
-            unique_tokens, counts = np.unique(all_tokens, return_counts=True)
-            total = sum(counts)
-            
-            # 计算频率分布
-            distribution = {
-                str(token): count/total 
-                for token, count in zip(unique_tokens, counts)
-            }
+            # 计算token频率分布
+            if 'input_tokens' in df.columns:
+                # 处理嵌套列表的情况
+                all_tokens = []
+                for tokens in df['input_tokens']:
+                    if isinstance(tokens, list):
+                        all_tokens.extend(tokens)
+                if not all_tokens:
+                    return {}
+                distribution = pd.Series(all_tokens).value_counts(normalize=True).to_dict()
+            else:
+                distribution = df['token'].value_counts(normalize=True).to_dict()
             
             # 如果提供了保存路径，生成并保存分布图
             if save_path:
-                self._visualize_distribution(distribution, save_path)
-                
+                try:
+                    # 检查路径是否有效
+                    if not os.path.isabs(save_path):
+                        raise ValueError(f"保存路径必须是绝对路径：{save_path}")
+                        
+                    # 在Windows上，检查路径是否包含无效字符
+                    if os.name == 'nt':
+                        invalid_chars = '<>:"|?*'
+                        if any(char in save_path for char in invalid_chars):
+                            raise ValueError(f"保存路径包含无效字符：{save_path}")
+                            
+                    save_dir = os.path.dirname(save_path)
+                    if not os.path.exists(save_dir):
+                        raise ValueError(f"保存路径的目录不存在：{save_dir}")
+                    if not os.access(save_dir, os.W_OK):
+                        raise ValueError(f"没有写入权限：{save_dir}")
+                    self._visualize_distribution(distribution, save_path)
+                except Exception as e:
+                    self.logger.error(f"保存分布图失败: {str(e)}")
+                    raise
+                    
             return distribution
             
         except Exception as e:
-            self.logger.error(f"计算 token 分布失败: {str(e)}")
-            return {}
+            self.logger.error(f"计算分布失败: {str(e)}")
+            raise
             
     def _visualize_distribution(self, distribution: Dict[str, float], save_path: str):
         """可视化 token 分布
@@ -76,7 +109,13 @@ class TokenProcessing:
         Args:
             distribution: token 分布字典
             save_path: 保存图片的路径
+            
+        Raises:
+            ValueError: 当分布为空或路径无效时
         """
+        if not distribution:
+            raise ValueError("分布数据为空")
+            
         try:
             # 准备数据
             tokens = list(distribution.keys())
@@ -101,6 +140,7 @@ class TokenProcessing:
             
         except Exception as e:
             self.logger.error(f"生成分布图失败: {str(e)}")
+            raise
         
     def get_token_data(self, df: pd.DataFrame, format: str = 'dataframe') -> Union[pd.DataFrame, Dict[str, List]]:
         """获取 token 数据
@@ -111,14 +151,27 @@ class TokenProcessing:
             
         Returns:
             Union[pd.DataFrame, Dict[str, List]]: 处理后的 token 数据
+            
+        Raises:
+            ValueError: 当格式无效或输入为 None 时
         """
+        if df is None:
+            raise ValueError("输入 DataFrame 不能为 None")
+            
+        if format not in ['dataframe', 'dict']:
+            raise ValueError("不支持的格式，只能是 'dataframe' 或 'dict'")
+            
         if df.empty:
             self.logger.warning("输入数据为空")
             return pd.DataFrame() if format == 'dataframe' else {}
             
         try:
             # 提取所需列
-            token_data = df[['input_tokens', 'decoded_text']].copy()
+            required_columns = ['input_tokens', 'decoded_text']
+            if not all(col in df.columns for col in required_columns):
+                raise ValueError(f"DataFrame 必须包含以下列：{required_columns}")
+                
+            token_data = df[required_columns].copy()
             
             # 根据请求的格式返回数据
             if format == 'dict':
