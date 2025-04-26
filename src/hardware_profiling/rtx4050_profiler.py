@@ -3,8 +3,6 @@
 import os
 import sys
 import time
-import torch
-import pynvml
 from typing import Dict, Any, Optional, Callable
 from toolbox.logger import get_logger
 from src.hardware_profiling.base_profiler import HardwareProfiler
@@ -49,6 +47,72 @@ def _get_nvml_library_path() -> str:
     
     return nvml_path
 
+# 测试模式下模拟 PyTorch 和 NVML
+if os.getenv('TEST_MODE') == '1':
+    class MockTorch:
+        def __init__(self):
+            self.cuda = MockCuda()
+            self.device = self._device
+
+        def _device(self, device_str):
+            return MockDevice(device_str)
+
+    class MockCuda:
+        def is_available(self):
+            return True
+
+        def device_count(self):
+            return 1
+
+    class MockDevice:
+        def __init__(self, device_str):
+            self.device_str = device_str
+
+    class MockNVML:
+        NVML_TEMPERATURE_GPU = 0  # 添加温度常量
+        
+        def nvmlInit(self):
+            pass
+
+        def nvmlShutdown(self):
+            pass
+
+        def nvmlDeviceGetHandleByIndex(self, index):
+            return MockNVMLHandle()
+
+        def nvmlDeviceGetName(self, handle):
+            return b"RTX 4050"
+
+        def nvmlDeviceGetPowerUsage(self, handle):
+            return 50000  # 50W in mW
+
+        def nvmlDeviceGetMemoryInfo(self, handle):
+            class MockMemoryInfo:
+                def __init__(self):
+                    self.total = 2 * 1024 * 1024 * 1024  # 2GB
+                    self.used = 1024 * 1024 * 1024  # 1GB
+                    self.free = 1024 * 1024 * 1024  # 1GB
+            return MockMemoryInfo()
+
+        def nvmlDeviceGetUtilizationRates(self, handle):
+            class MockUtilization:
+                def __init__(self):
+                    self.gpu = 50  # 50% utilization
+                    self.memory = 50
+            return MockUtilization()
+
+        def nvmlDeviceGetTemperature(self, handle, temp_type):
+            return 65  # 65°C
+
+    class MockNVMLHandle:
+        pass
+
+    torch = MockTorch()
+    pynvml = MockNVML()
+else:
+    import torch
+    import pynvml
+
 class RTX4050Profiler(HardwareProfiler):
     """RTX 4050 显卡性能分析器类。"""
     
@@ -62,7 +126,6 @@ class RTX4050Profiler(HardwareProfiler):
                 - idle_power: 空闲功率
                 - sample_interval: 采样间隔
         """
-        # 初始化基本属性
         self.device_id = config.get("device_id", 0)
         self.device_type = config.get("device_type", "gpu")
         self.idle_power = config.get("idle_power", 15.0)
@@ -71,16 +134,17 @@ class RTX4050Profiler(HardwareProfiler):
         self.device = None
         self.handle = None
         self.nvml_initialized = False
-        self.is_measuring = False  # 添加测量状态标志
+        self.is_measuring = False
+        self.is_test_mode = os.getenv('TEST_MODE') == '1'
 
         # 验证配置
         self._validate_config()
         
+        # 调用父类初始化
+        super().__init__()
+        
         # 初始化分析器
         self._init_profiler()
-        
-        # 调用父类初始化
-        super().__init__(config)
 
     def _validate_config(self) -> None:
         """验证配置。"""
@@ -118,7 +182,7 @@ class RTX4050Profiler(HardwareProfiler):
                 device_name = pynvml.nvmlDeviceGetName(self.handle)
                 if isinstance(device_name, bytes):
                     device_name = device_name.decode()
-                if "RTX 4050" not in device_name:
+                if "RTX 4050" not in device_name and not self.is_test_mode:
                     logger.warning(f"当前设备不是 RTX 4050: {device_name}")
             except (pynvml.NVMLError_LibraryNotFound, FileNotFoundError) as e:
                 logger.warning(f"NVML 库不可用: {str(e)}，使用 CPU 模式")
@@ -223,15 +287,7 @@ class RTX4050Profiler(HardwareProfiler):
         Returns:
             float: 当前功率使用值（瓦特）
         """
-        if not self.initialized or not self.nvml_initialized or self.handle is None:
-            return self.idle_power
-            
-        try:
-            power = pynvml.nvmlDeviceGetPowerUsage(self.handle) / 1000.0  # 转换为瓦特
-            return max(0.0, power - self.idle_power)  # 减去空闲功耗
-        except pynvml.NVMLError as e:
-            logger.error(f"功率测量失败: {e}")
-            return self.idle_power
+        return self.measure_power()
 
     def get_memory_usage(self) -> int:
         """获取当前显存使用情况。
@@ -308,7 +364,7 @@ class RTX4050Profiler(HardwareProfiler):
             "avg_power": avg_power,
             "avg_memory": avg_memory,
             "avg_utilization": avg_utilization
-        } 
+        }
 
     def get_memory_info(self) -> Dict[str, float]:
         """获取 GPU 内存信息。
@@ -389,4 +445,107 @@ class RTX4050Profiler(HardwareProfiler):
             }
         except Exception as e:
             logger.error(f"性能测量失败: {str(e)}")
-            raise 
+            raise
+
+    def profile_memory(self) -> Dict[str, float]:
+        """分析内存使用情况。
+        
+        Returns:
+            Dict[str, float]: 内存使用指标
+        """
+        if not self.initialized:
+            return {
+                "total": 0.0,
+                "used": 0.0,
+                "free": 0.0,
+                "utilization": 0.0
+            }
+            
+        try:
+            info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
+            total = float(info.total)
+            used = float(info.used)
+            free = float(info.free)
+            utilization = (used / total) * 100 if total > 0 else 0
+            
+            return {
+                "total": total,
+                "used": used,
+                "free": free,
+                "utilization": utilization
+            }
+        except pynvml.NVMLError as e:
+            logger.error(f"获取内存信息失败: {e}")
+            return {
+                "total": 0.0,
+                "used": 0.0,
+                "free": 0.0,
+                "utilization": 0.0
+            }
+
+    def profile_cpu(self) -> Dict[str, float]:
+        """分析 CPU 使用情况。
+        
+        Returns:
+            Dict[str, float]: CPU 使用指标
+        """
+        import psutil
+        
+        try:
+            cpu_percent = psutil.cpu_percent(interval=1)
+            cpu_freq = psutil.cpu_freq()
+            cpu_count = psutil.cpu_count()
+            
+            return {
+                "utilization": float(cpu_percent),
+                "frequency": float(cpu_freq.current) if cpu_freq else 0.0,
+                "core_count": float(cpu_count)
+            }
+        except Exception as e:
+            logger.error(f"获取 CPU 信息失败: {e}")
+            return {
+                "utilization": 0.0,
+                "frequency": 0.0,
+                "core_count": 0.0
+            }
+
+    def profile_gpu(self) -> Dict[str, float]:
+        """分析 GPU 使用情况。
+        
+        Returns:
+            Dict[str, float]: GPU 使用指标
+        """
+        if not self.initialized or not self.nvml_initialized or self.handle is None:
+            return {
+                "power_usage": 0.0,
+                "temperature": 0.0,
+                "utilization": 0.0,
+                "memory_utilization": 0.0
+            }
+            
+        try:
+            # 获取功率使用
+            power = pynvml.nvmlDeviceGetPowerUsage(self.handle) / 1000.0  # 转换为瓦特
+            
+            # 获取温度
+            temperature = pynvml.nvmlDeviceGetTemperature(self.handle, pynvml.NVML_TEMPERATURE_GPU)
+            
+            # 获取利用率
+            utilization = pynvml.nvmlDeviceGetUtilizationRates(self.handle)
+            gpu_util = float(utilization.gpu)
+            memory_util = float(utilization.memory)
+            
+            return {
+                "power_usage": power,
+                "temperature": float(temperature),
+                "utilization": gpu_util,
+                "memory_utilization": memory_util
+            }
+        except pynvml.NVMLError as e:
+            logger.error(f"获取 GPU 信息失败: {e}")
+            return {
+                "power_usage": 0.0,
+                "temperature": 0.0,
+                "utilization": 0.0,
+                "memory_utilization": 0.0
+            } 
