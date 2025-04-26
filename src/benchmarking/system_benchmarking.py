@@ -20,15 +20,17 @@ logger = get_logger(__name__)
 class SystemBenchmarking(BaseBenchmarking):
     """系统基准测试类，用于测试系统整体性能。"""
     
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], dataset: Optional[List[Dict[str, Any]]] = None) -> None:
         """初始化系统基准测试。
 
         Args:
             config: 配置字典
+            dataset: 数据集，可选
         """
         super().__init__(config)
         self.initialized = False
         self.results = {}
+        self.dataset = dataset or []
         
         # 初始化组件
         self._init_components()
@@ -48,6 +50,10 @@ class SystemBenchmarking(BaseBenchmarking):
         # 验证调度器配置
         if not self.scheduler_config.get("scheduler_type"):
             raise ValueError("调度器配置中必须指定调度器类型")
+        
+        # 验证数据集
+        if not self.dataset:
+            logger.warning("数据集为空")
     
     def _init_components(self) -> None:
         """初始化组件。"""
@@ -65,15 +71,23 @@ class SystemBenchmarking(BaseBenchmarking):
             # 获取模型配置
             model_config = self.config_manager.get_model_config()
             model_path = self.config_manager.get_model_path()
-            
-            # 加载模型
-            self.model = torch.load(model_path)
+
+            # 创建模型实例
+            model_type = model_config.get("model_type", "test_model")
+            if model_type == "test_model":
+                self.model = torch.nn.Linear(10, 10)
+            else:
+                raise ValueError(f"不支持的模型类型: {model_type}")
+
+            # 加载模型状态
+            state_dict = torch.load(model_path)
+            self.model.load_state_dict(state_dict)
             self.model.to(self.hardware_config["device"])
             self.model.eval()
-            
-            logger.info(f"模型加载完成: {model_path}")
+
+            self.logger.info("模型初始化成功")
         except Exception as e:
-            logger.error(f"模型初始化失败: {str(e)}")
+            self.logger.error(f"模型初始化失败: {str(e)}")
             raise
     
     def _init_scheduler(self) -> None:

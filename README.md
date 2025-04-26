@@ -187,10 +187,10 @@ def main_rtx4050_test():
         logger.info(f"RTX 4050 metrics: {metrics}")
         
         # Save results
-        with open("data/benchmarks/rtx4050_test.json", "w") as f:
+        with open("data/benchmarking/rtx4050_test.json", "w") as f:
             import json
             json.dump(metrics, f, indent=2)
-        logger.info("Saved test results to data/benchmarks/rtx4050_test.json")
+        logger.info("Saved test results to data/benchmarking/rtx4050_test.json")
         
     except Exception as e:
         logger.error(f"RTX 4050 test failed: {e}")
@@ -218,10 +218,10 @@ python src/main_rtx4050_test.py
   INFO:root:Selected prompt: Write a short story about a dragon.
   INFO:root:Input tokens: 8
   INFO:root:RTX 4050 metrics: {'energy': 5.2, 'runtime': 1.3, 'throughput': 6.15, 'energy_per_token': 0.65}
-  INFO:root:Saved test results to data/benchmarks/rtx4050_test.json
+  INFO:root:Saved test results to data/benchmarking/rtx4050_test.json
   INFO:root:RTX 4050 test completed successfully
   ```
-- File `data/benchmarks/rtx4050_test.json`:
+- File `data/benchmarking/rtx4050_test.json`:
   ```json
   {
     "energy": 5.2,
@@ -241,7 +241,7 @@ python src/main_rtx4050_test.py
 
 ### Step 3: Run Tests for RTX 4050
 
-Run unit and benchmark tests to validate RTX 4050 profiling and integration. The relevant tests are in `tests/unit/test_hardware_profiling.py` and `tests/benchmarks/test_benchmarking.py`.
+Run unit and benchmark tests to validate RTX 4050 profiling and integration. The relevant tests are in `tests/unit/test_hardware_profiling.py` and `tests/benchmarking/test_benchmarking.py`.
 
 #### Update Test Configuration
 Ensure the test fixtures reflect the RTX 4050's characteristics (e.g., lower energy for small tasks).
@@ -301,7 +301,7 @@ def scheduler_config():
 @pytest.fixture
 def output_dir(tmp_path):
     """Create output directory for benchmark results."""
-    return tmp_path / "benchmarks"
+    return tmp_path / "benchmarking"
 
 def test_rtx4050_system_benchmarking(mock_dataset, hardware_config, model_config, scheduler_config, output_dir, monkeypatch):
     """Test system benchmarking with RTX 4050 focus."""
@@ -373,8 +373,8 @@ def test_rtx4050_model_benchmarking(mock_dataset, hardware_config, model_config,
 # Run RTX 4050-specific tests
 pytest tests/unit/test_hardware_profiling.py::test_rtx4050_profiler_initialization
 pytest tests/unit/test_hardware_profiling.py::test_get_profiler_rtx4050
-pytest tests/benchmarks/test_benchmarking.py::test_rtx4050_system_benchmarking
-pytest tests/benchmarks/test_benchmarking.py::test_rtx4050_model_benchmarking
+pytest tests/benchmarking/test_benchmarking.py::test_rtx4050_system_benchmarking
+pytest tests/benchmarking/test_benchmarking.py::test_rtx4050_model_benchmarking
 
 # Run all tests for coverage
 pytest tests/ --cov=src
@@ -383,7 +383,7 @@ pytest tests/ --cov=src
 #### Expected Output
 - Test logs indicating all tests passed.
 - Coverage report showing >90% coverage for `hardware_profiling/rtx4050_profiling.py`.
-- `data/benchmarks/model_benchmarks.json` with RTX 4050 metrics (if `test_rtx4050_model_benchmarking` runs).
+- `data/benchmarking/model_benchmarks.json` with RTX 4050 metrics (if `test_rtx4050_model_benchmarking` runs).
 
 #### Troubleshooting
 - **Test Failures**: Check mock values in `mock_measure` (e.g., energy for RTX 4050). Adjust if real hardware metrics differ.
@@ -446,7 +446,7 @@ def main():
         model_benchmarker = ModelBenchmarking(dataset_path, 
                                             {"rtx4050": hardware_config["rtx4050"]}, 
                                             model_config, 
-                                            output_dir="data/benchmarks")
+                                            output_dir="data/benchmarking")
         model_benchmark_results = model_benchmarker.run_benchmarks(sample_size=3)
         logger.info("Completed RTX 4050 model-specific benchmarks")
         
@@ -466,17 +466,17 @@ def main():
         
         # Run system benchmarks (RTX 4050 included)
         benchmarker = SystemBenchmarking(dataset_path, hardware_config, model_config, scheduler_config, 
-                                       output_dir="data/benchmarks")
+                                       output_dir="data/benchmarking")
         benchmark_results = benchmarker.run_benchmarks(thresholds, model_name="llama3", sample_size=3)
         logger.info("Completed system benchmarking")
         
         # Analyze tradeoffs
-        analyzer = TradeoffAnalyzer(distribution_path, hardware_config, model_config, output_dir="data/benchmarks")
+        analyzer = TradeoffAnalyzer(distribution_path, hardware_config, model_config, output_dir="data/benchmarking")
         tradeoff_results = analyzer.analyze(model_name="llama3")
         logger.info("Completed tradeoff analysis")
         
         # Generate report
-        generator = ReportGenerator(output_dir="data/benchmarks")
+        generator = ReportGenerator(output_dir="data/benchmarking")
         generator.generate_report(benchmark_results, tradeoff_results)
         logger.info("Generated benchmark report and visualizations")
         
@@ -511,7 +511,7 @@ python src/main.py
   INFO:root:Pipeline completed successfully
   ```
 - **Files**:
-  - `data/benchmarks/model_benchmarks.json`: Metrics for Llama-3 on RTX 4050.
+  - `data/benchmarking/model_benchmarks.json`: Metrics for Llama-3 on RTX 4050.
     ```json
     {
       "llama3": {
@@ -525,8 +525,8 @@ python src/main.py
       }
     }
     ```
-  - `data/benchmarks/benchmark_summary.json`: System benchmark results, including RTX 4050.
-  - Visualizations: `data/benchmarks/energy_per_token.png`, `runtime.png`, `tradeoff_curve.png`.
+  - `data/benchmarking/benchmark_summary.json`: System benchmark results, including RTX 4050.
+  - Visualizations: `data/benchmarking/energy_per_token.png`, `runtime.png`, `tradeoff_curve.png`.
 
 #### Validate Energy Reduction
 - Check `benchmark_summary.json` to compare `hybrid` vs. `a100`:
@@ -567,4 +567,4 @@ python src/main.py
 ---
 
 ### Summary
-This guide provides a complete workflow to set up the environment, run a test, execute tests, and benchmark the *hybrid-llm-inference* project on an NVIDIA RTX 4050 GPU. The environment is created with a Python virtual environment and dependencies from `requirements.txt`. The `main_rtx4050_test.py` script verifies RTX 4050 functionality with a single Llama-3 inference, while the updated `main.py` runs model and system benchmarks, focusing on RTX 4050. Tests in `test_hardware_profiling.py` and `test_benchmarking.py` validate profiling and benchmarking, ensuring RTX 4050's energy efficiency. Outputs include logs, JSON results, and visualizations in `data/benchmarks/`, confirming the 7.5% energy reduction. Debugging tips address common issues like NVML errors or memory constraints. Next steps include scaling to larger datasets and integrating real `pyjoules` measurements on the RTX 4050.
+This guide provides a complete workflow to set up the environment, run a test, execute tests, and benchmark the *hybrid-llm-inference* project on an NVIDIA RTX 4050 GPU. The environment is created with a Python virtual environment and dependencies from `requirements.txt`. The `main_rtx4050_test.py` script verifies RTX 4050 functionality with a single Llama-3 inference, while the updated `main.py` runs model and system benchmarks, focusing on RTX 4050. Tests in `test_hardware_profiling.py` and `test_benchmarking.py` validate profiling and benchmarking, ensuring RTX 4050's energy efficiency. Outputs include logs, JSON results, and visualizations in `data/benchmarking/`, confirming the 7.5% energy reduction. Debugging tips address common issues like NVML errors or memory constraints. Next steps include scaling to larger datasets and integrating real `pyjoules` measurements on the RTX 4050.

@@ -9,7 +9,7 @@ from typing import Dict, Any
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from src.benchmarking.system_benchmarking import SystemBenchmarking
+from tests.benchmarking.test_benchmarking import SystemBenchmarking, ModelBenchmarking
 from src.benchmarking.report_generator import ReportGenerator
 
 # 配置日志

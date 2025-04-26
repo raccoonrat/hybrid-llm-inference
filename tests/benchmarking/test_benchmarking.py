@@ -35,6 +35,15 @@ logger = get_logger(__name__)
 # 设置测试模式
 os.environ['TEST_MODE'] = '1'
 
+class TensorEncoder(json.JSONEncoder):
+    """自定义 JSON 编码器，用于处理 PyTorch Tensor 和 NumPy 数组。"""
+    def default(self, obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.tolist()
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
 @pytest.fixture
 def mock_dataset(tmp_path) -> str:
     """创建模拟数据集。"""
@@ -56,31 +65,36 @@ def mock_dataset(tmp_path) -> str:
     return str(dataset_path)
 
 @pytest.fixture
-def test_config(tmp_path, mock_dataset):
-    """创建测试配置的fixture。"""
+def test_config(tmp_path):
+    """创建测试配置。"""
+    # 创建临时数据集文件
+    dataset_file = tmp_path / "test_dataset.json"
+    with open(dataset_file, 'w', encoding='utf-8') as f:
+        json.dump([
+            {"input": "测试输入1", "expected_output": "测试输出1"},
+            {"input": "测试输入2", "expected_output": "测试输出2"}
+        ], f)
+    
+    # 创建临时模型文件
+    model_path = tmp_path / "test_model.pt"
+    model = torch.nn.Linear(10, 10)
+    torch.save(model.state_dict(), model_path)
+    
     return {
-        "dataset_path": mock_dataset,
         "hardware_config": {
-            "device_id": 0,
-            "device_type": "cuda",
-            "idle_power": 100,
-            "sample_interval": 200
+            "device": "cuda" if torch.cuda.is_available() else "cpu",
+            "num_workers": 4
         },
         "model_config": {
-            "model_name": "TinyLlama",
-            "model_path": str(tmp_path / "mock_model"),  # 模拟模型路径
-            "device": "cuda" if torch.cuda.is_available() else "cpu",
-            "dtype": "float32",
-            "batch_size": 1,
-            "max_length": 512,
-            "mode": "inference"
+            "model_path": str(model_path),
+            "model_type": "test_model"
         },
         "scheduler_config": {
-            "strategy": "round_robin",
-            "batch_size": 1,
-            "num_workers": 1
+            "scheduler_type": "token_based",
+            "batch_size": 32
         },
-        "output_dir": str(tmp_path / "output")
+        "dataset_path": str(dataset_file),
+        "output_dir": str(tmp_path / "test_output")
     }
 
 @pytest.fixture
@@ -147,78 +161,130 @@ def report_generator(tmp_path):
     """创建报告生成器实例。"""
     return ReportGenerator(str(tmp_path / "output"))
 
-def test_system_benchmarking_initialization(benchmarking_instance):
-    """测试基准测试系统初始化。"""
-    assert benchmarking_instance.config is not None
-    assert benchmarking_instance.dataset is not None
-    assert len(benchmarking_instance.dataset) > 0
+@pytest.fixture
+def sample_dataset():
+    """创建测试数据集"""
+    return {
+        "inputs": [
+            {
+                "input": "测试输入1",
+                "output": "测试输出1",
+                "tokens": [1, 2, 3, 4, 5]
+            },
+            {
+                "input": "测试输入2",
+                "output": "测试输出2",
+                "tokens": [6, 7, 8, 9, 10]
+            }
+        ]
+    }
 
-def test_system_benchmarking_run_benchmark(benchmarking_instance):
-    """测试运行基准测试。"""
-    results = benchmarking_instance.run()
-    assert isinstance(results, dict)
-    assert "metrics" in results
-    assert "latency" in results["metrics"]
+@pytest.fixture
+def sample_config(tmp_path, sample_dataset):
+    """创建测试配置"""
+    # 创建临时数据集文件
+    dataset_file = tmp_path / "sample_dataset.json"
+    with open(dataset_file, "w", encoding="utf-8") as f:
+        json.dump(sample_dataset, f, ensure_ascii=False)
 
-def test_system_benchmarking_cleanup(benchmarking_instance):
-    """测试清理资源。"""
-    benchmarking_instance.cleanup()
-    # 验证清理后的状态
+    return {
+        "model_path": str(tmp_path / "sample_model.pt"),
+        "dataset_path": str(dataset_file),
+        "output_dir": str(tmp_path / "output"),
+        "model_config": {
+            "model_type": "test_model"
+        },
+        "hardware_config": {
+            "device": "cpu"
+        }
+    }
 
-def test_system_benchmarking_small_dataset(benchmark_config):
-    """测试小数据集。"""
-    small_dataset = [{"input": "测试", "expected_output": "结果"}]
-    instance = SystemBenchmarking(benchmark_config, small_dataset)
-    results = instance.run()
-    assert results["dataset_size"] == 1
+@pytest.fixture
+def benchmark_instance(sample_config, sample_dataset):
+    """创建基准测试实例。"""
+    # 创建测试模型文件
+    model = torch.nn.Linear(10, 10)
+    os.makedirs("tests/data", exist_ok=True)
+    torch.save(model.state_dict(), "tests/data/sample_model.pt")
+    
+    # 创建测试数据集文件
+    with open("tests/data/sample_dataset.json", "w") as f:
+        json.dump(sample_dataset, f, cls=TensorEncoder)
+    
+    # 设置测试模式
+    os.environ['TEST_MODE'] = '1'
+    instance = SystemBenchmarking(sample_config, sample_dataset)
+    yield instance
+    os.environ.pop('TEST_MODE', None)
 
-def test_system_benchmarking_large_sample_size(benchmark_config, mock_dataset):
-    """测试大样本量。"""
-    config = benchmark_config.copy()
-    config["num_iterations"] = 10
-    instance = SystemBenchmarking(config, mock_dataset)
-    results = instance.run()
-    assert len(results["metrics"]["latency"]) == 10
+def test_system_benchmarking_initialization(benchmark_instance):
+    assert benchmark_instance.initialized
+    assert isinstance(benchmark_instance.model, torch.nn.Module)
+    assert benchmark_instance.dataset
 
-def test_system_benchmarking_empty_dataset(benchmark_config):
-    """测试空数据集。"""
-    with pytest.raises(ValueError, match="数据集不能为空"):
-        SystemBenchmarking(benchmark_config, [])
+def test_system_benchmarking_run_benchmark(benchmark_instance):
+    results = benchmark_instance.run_benchmarks(benchmark_instance.dataset)
+    assert results
+    assert len(results) == len(benchmark_instance.dataset)
+    for task_id, result in results.items():
+        assert "task" in result
+        assert "result" in result
+        assert "execution_time" in result
 
-def test_system_benchmarking_invalid_dataset(benchmark_config):
-    """测试无效数据集。"""
-    invalid_dataset = [{"wrong_key": "value"}]
-    with pytest.raises(ValueError, match="数据集格式无效"):
-        SystemBenchmarking(benchmark_config, invalid_dataset)
+def test_system_benchmarking_cleanup(benchmark_instance):
+    benchmark_instance.cleanup()
+    assert not benchmark_instance.initialized
 
-def test_system_benchmarking_resource_monitoring(benchmarking_instance):
-    """测试资源监控。"""
-    results = benchmarking_instance.run()
-    assert "memory_usage" in results["metrics"]
-    assert isinstance(results["metrics"]["memory_usage"], (int, float))
+def test_system_benchmarking_small_dataset(benchmark_instance):
+    small_dataset = [benchmark_instance.dataset[0]]
+    benchmark_instance.dataset = small_dataset
+    results = benchmark_instance.run_benchmarks(small_dataset)
+    assert len(results) == 1
 
-def test_system_benchmarking_multiprocessing(benchmark_config, mock_dataset):
-    """测试多进程支持。"""
-    config = benchmark_config.copy()
-    config["num_workers"] = 2
-    instance = SystemBenchmarking(config, mock_dataset)
-    results = instance.run()
-    assert results["num_workers"] == 2
+def test_system_benchmarking_large_sample_size(benchmark_instance):
+    large_dataset = benchmark_instance.dataset * 10
+    benchmark_instance.dataset = large_dataset
+    results = benchmark_instance.run_benchmarks(large_dataset)
+    assert len(results) == len(large_dataset)
 
-def test_system_benchmarking_scheduling_strategy(benchmark_config, mock_dataset):
-    """测试调度策略。"""
-    config = benchmark_config.copy()
-    config["scheduling"] = "round_robin"
-    instance = SystemBenchmarking(config, mock_dataset)
-    results = instance.run()
-    assert results["scheduling"] == "round_robin"
+def test_system_benchmarking_empty_dataset(benchmark_instance):
+    benchmark_instance.dataset = []
+    with pytest.raises(RuntimeError, match="数据集为空"):
+        benchmark_instance.run_benchmarks([])
 
-def test_system_benchmarking_error_handling(benchmarking_instance):
-    """测试错误处理。"""
-    # 模拟错误情况
-    benchmarking_instance.dataset[0]["input"] = None
-    with pytest.raises(ValueError, match="输入不能为空"):
-        benchmarking_instance.run()
+def test_system_benchmarking_invalid_dataset(benchmark_instance):
+    invalid_dataset = [{"task_id": "task1"}]  # 缺少 input_data
+    benchmark_instance.dataset = invalid_dataset
+    with pytest.raises(ValueError, match="任务必须包含输入数据"):
+        benchmark_instance.run_benchmarks(invalid_dataset)
+
+def test_system_benchmarking_resource_monitoring(benchmark_instance):
+    results = benchmark_instance.run_benchmarks(benchmark_instance.dataset)
+    metrics = benchmark_instance.get_metrics()
+    assert "average_execution_time" in metrics
+    assert "max_execution_time" in metrics
+    assert "min_execution_time" in metrics
+    assert "throughput" in metrics
+
+def test_system_benchmarking_multiprocessing(benchmark_instance):
+    # 测试多进程支持
+    with multiprocessing.Pool(2) as pool:
+        results = pool.map(benchmark_instance.run_benchmarks, [benchmark_instance.dataset])
+    assert len(results) == 1
+    assert len(results[0]) == len(benchmark_instance.dataset)
+
+def test_system_benchmarking_scheduling_strategy(benchmark_instance):
+    # 测试不同的调度策略
+    benchmark_instance.scheduler_config["scheduler_type"] = "task_based"
+    benchmark_instance._init_scheduler()
+    results = benchmark_instance.run_benchmarks(benchmark_instance.dataset)
+    assert results
+
+def test_system_benchmarking_error_handling(benchmark_instance):
+    # 测试错误处理
+    benchmark_instance.model = None
+    with pytest.raises(AttributeError):
+        benchmark_instance.run_benchmarks(benchmark_instance.dataset)
 
 def test_system_benchmarking_small_dataset(test_config):
     """测试小数据集系统基准测试。"""

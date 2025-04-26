@@ -40,9 +40,9 @@ class BaseBenchmarking(ABC):
     
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
-        if not self.dataset_path:
+        if not self.config_manager.get_dataset_path():
             raise ValueError("dataset_path 不能为空")
-        if not self.output_dir:
+        if not self.config_manager.get_output_dir():
             raise ValueError("output_dir 不能为空")
         if not self.hardware_config:
             raise ValueError("hardware_config 不能为空")

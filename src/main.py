@@ -45,7 +45,7 @@ def main():
             logger.info(f"Saved token distribution to {distribution_path}")
         
         # Run model-specific benchmarks
-        model_benchmarker = ModelBenchmarking(dataset_path, hardware_config, model_config, output_dir="data/benchmarks")
+        model_benchmarker = ModelBenchmarking(dataset_path, hardware_config, model_config, output_dir="data/benchmarking")
         model_benchmark_results = model_benchmarker.run_benchmarks(sample_size=100)
         logger.info("Completed model-specific benchmarks")
         
@@ -65,17 +65,17 @@ def main():
         
         # Run system benchmarks
         benchmarker = SystemBenchmarking(dataset_path, hardware_config, model_config, scheduler_config, 
-                                       output_dir="data/benchmarks")
+                                       output_dir="data/benchmarking")
         benchmark_results = benchmarker.run_benchmarks(thresholds, model_name="llama3", sample_size=1000)
         logger.info("Completed system benchmarking")
         
         # Analyze tradeoffs
-        analyzer = TradeoffAnalyzer(distribution_path, hardware_config, model_config, output_dir="data/benchmarks")
+        analyzer = TradeoffAnalyzer(distribution_path, hardware_config, model_config, output_dir="data/benchmarking")
         tradeoff_results = analyzer.analyze(model_name="llama3")
         logger.info("Completed tradeoff analysis")
         
         # Generate report
-        generator = ReportGenerator(output_dir="data/benchmarks")
+        generator = ReportGenerator(output_dir="data/benchmarking")
         generator.generate_report(benchmark_results, tradeoff_results)
         logger.info("Generated benchmark report and visualizations")
         
