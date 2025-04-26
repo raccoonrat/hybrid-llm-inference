@@ -11,6 +11,8 @@ from toolbox.config_manager import ConfigManager
 from .base_benchmarking import BaseBenchmarking
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from src.model_zoo.tinyllama import TinyLlama
+from src.scheduling.token_based_scheduler import TokenBasedScheduler
+from src.scheduling.task_based_scheduler import TaskBasedScheduler
 import time
 import random
 import torch
@@ -28,12 +30,26 @@ class SystemBenchmarking(BaseBenchmarking):
             dataset: 数据集，可选
         """
         super().__init__(config)
+        self.logger = get_logger(__name__)
         self.initialized = False
         self.results = {}
-        self.dataset = dataset or []
+        
+        # 加载数据集
+        if dataset is not None:
+            self.dataset = dataset
+        else:
+            dataset_path = self.config_manager.get_dataset_path()
+            if os.path.exists(dataset_path):
+                with open(dataset_path, 'r', encoding='utf-8') as f:
+                    self.dataset = json.load(f)
+            else:
+                self.dataset = []
         
         # 初始化组件
         self._init_components()
+        
+        # 设置初始化标志
+        self.initialized = True
         
         logger.info("系统基准测试初始化完成")
     
@@ -57,34 +73,35 @@ class SystemBenchmarking(BaseBenchmarking):
     
     def _init_components(self) -> None:
         """初始化组件。"""
-        # 初始化模型
+        super()._init_components()
         self._init_model()
-        
-        # 初始化调度器
         self._init_scheduler()
         
-        self.initialized = True
-    
     def _init_model(self) -> None:
         """初始化模型。"""
         try:
             # 获取模型配置
             model_config = self.config_manager.get_model_config()
             model_path = self.config_manager.get_model_path()
-
+            
             # 创建模型实例
             model_type = model_config.get("model_type", "test_model")
             if model_type == "test_model":
                 self.model = torch.nn.Linear(10, 10)
+            elif model_type == "mock":
+                from src.model_zoo.mock_model import MockModel
+                self.model = MockModel(model_path=model_path)
             else:
                 raise ValueError(f"不支持的模型类型: {model_type}")
-
-            # 加载模型状态
-            state_dict = torch.load(model_path)
-            self.model.load_state_dict(state_dict)
+            
+            # 在非测试模式下加载模型状态
+            if os.getenv('TEST_MODE') != '1':
+                state_dict = torch.load(model_path)
+                self.model.load_state_dict(state_dict)
+            
             self.model.to(self.hardware_config["device"])
             self.model.eval()
-
+            
             self.logger.info("模型初始化成功")
         except Exception as e:
             self.logger.error(f"模型初始化失败: {str(e)}")
@@ -98,10 +115,8 @@ class SystemBenchmarking(BaseBenchmarking):
             
             # 根据类型初始化调度器
             if scheduler_type == "token_based":
-                from src.scheduler.token_based_scheduler import TokenBasedScheduler
                 self.scheduler = TokenBasedScheduler(self.scheduler_config)
             elif scheduler_type == "task_based":
-                from src.scheduler.task_based_scheduler import TaskBasedScheduler
                 self.scheduler = TaskBasedScheduler(self.scheduler_config)
             else:
                 raise ValueError(f"不支持的调度器类型: {scheduler_type}")
@@ -111,11 +126,11 @@ class SystemBenchmarking(BaseBenchmarking):
             logger.error(f"调度器初始化失败: {str(e)}")
             raise
     
-    def run_benchmarks(self, tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def run_benchmarks(self, tasks: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """运行基准测试。
 
         Args:
-            tasks: 待测试的任务列表
+            tasks: 待测试的任务列表，如果为 None 则使用数据集中的任务
 
         Returns:
             基准测试结果
@@ -126,36 +141,38 @@ class SystemBenchmarking(BaseBenchmarking):
         try:
             results = {}
             
+            # 如果没有提供任务列表，则使用数据集中的任务
+            if tasks is None:
+                tasks = self.dataset
+            
+            # 确保任务列表是列表类型
+            if isinstance(tasks, str):
+                # 如果是字符串，假设是 JSON 文件路径
+                with open(tasks, 'r', encoding='utf-8') as f:
+                    tasks = json.load(f)
+            elif not isinstance(tasks, list):
+                raise ValueError("任务必须是列表类型或 JSON 文件路径")
+            
             # 运行每个任务
             for task in tasks:
+                if not isinstance(task, dict):
+                    raise ValueError("每个任务必须是字典类型")
+                
                 task_id = task.get("task_id", str(len(results)))
-                logger.info(f"开始运行任务 {task_id}")
+                self.logger.info(f"开始运行任务 {task_id}")
                 
-                # 记录开始时间
-                start_time = time.time()
-                
-                # 运行任务
+                # 运行任务并记录结果
                 task_result = self._run_task(task)
-                
-                # 记录结束时间
-                end_time = time.time()
-                
-                # 计算执行时间
-                execution_time = end_time - start_time
-                
-                # 记录结果
                 results[task_id] = {
                     "task": task,
-                    "result": task_result,
-                    "execution_time": execution_time
+                    "result": task_result["result"],
+                    "execution_time": task_result["execution_time"]
                 }
-                
-                logger.info(f"任务 {task_id} 完成，执行时间: {execution_time:.2f}秒")
             
             self.results = results
             return results
         except Exception as e:
-            logger.error(f"基准测试运行失败: {str(e)}")
+            self.logger.error(f"基准测试运行失败: {str(e)}")
             raise
     
     def _run_task(self, task: Dict[str, Any]) -> Any:
@@ -169,20 +186,27 @@ class SystemBenchmarking(BaseBenchmarking):
         """
         try:
             # 获取任务输入
-            input_data = task.get("input_data")
+            input_data = task.get("input_data") or task.get("input")
             if not input_data:
-                raise ValueError("任务必须包含输入数据")
+                raise ValueError("任务必须包含输入数据 (input_data 或 input 字段)")
             
-            # 使用调度器分配任务
-            scheduled_task = self.scheduler.schedule_task(task)
+            # 记录开始时间
+            start_time = time.time()
             
-            # 运行模型推理
-            with torch.no_grad():
-                output = self.model(input_data)
+            # 运行任务
+            self.logger.info(f"开始处理任务: {input_data}")
+            result = self.model.generate(input_data)
             
-            return output
+            # 记录结束时间
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
+            return {
+                "result": result,
+                "execution_time": execution_time
+            }
         except Exception as e:
-            logger.error(f"任务运行失败: {str(e)}")
+            self.logger.error(f"任务运行失败: {str(e)}")
             raise
     
     def get_metrics(self) -> Dict[str, float]:
@@ -237,4 +261,4 @@ class SystemBenchmarking(BaseBenchmarking):
 
     def run_benchmark(self):
         """运行基准测试的别名方法。"""
-        return self.run_benchmarks()
+        return self.run_benchmarks(self.dataset)

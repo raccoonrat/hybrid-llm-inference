@@ -22,34 +22,52 @@ class ConfigManager:
         """验证配置的有效性。"""
         if not isinstance(self.config, dict):
             raise ValueError("配置必须是字典类型")
-        
-        # 验证模型配置
-        if "model_config" in self.config:
-            model_config = self.config["model_config"]
-            if not isinstance(model_config, dict):
-                raise ValueError("model_config 必须是字典类型")
-            
-            # 验证模型路径
-            if "model_path" in model_config:
-                model_path = model_config["model_path"]
-                if not isinstance(model_path, str):
-                    raise ValueError("model_path 必须是字符串类型")
-                if not os.path.exists(model_path):
-                    # 在测试模式下,允许模型路径不存在
-                    if not os.environ.get('TEST_MODE'):
-                        raise ValueError(f"模型路径不存在: {model_path}")
-    
+
         # 验证数据集路径
         if "dataset_path" in self.config:
             dataset_path = self.config["dataset_path"]
             if not isinstance(dataset_path, str):
                 raise ValueError("dataset_path 必须是字符串类型")
-    
+            if not os.environ.get('TEST_MODE'):
+                if not os.path.exists(dataset_path):
+                    raise ValueError(f"数据集路径不存在: {dataset_path}")
+
+        # 验证模型配置
+        if "model_config" in self.config:
+            model_config = self.config["model_config"]
+            if not isinstance(model_config, dict):
+                raise ValueError("model_config 必须是字典类型")
+
+            # 验证模型路径
+            if "model_path" in model_config:
+                model_path = model_config["model_path"]
+                if not isinstance(model_path, str):
+                    raise ValueError("model_path 必须是字符串类型")
+                if not os.environ.get('TEST_MODE'):
+                    if not os.path.exists(model_path):
+                        raise ValueError(f"模型路径不存在: {model_path}")
+
+        # 验证硬件配置
+        if "hardware_config" in self.config:
+            hardware_config = self.config["hardware_config"]
+            if not isinstance(hardware_config, dict):
+                raise ValueError("hardware_config 必须是字典类型")
+
+            # 验证设备类型
+            if "device" in hardware_config:
+                device = hardware_config["device"]
+                if not isinstance(device, str):
+                    raise ValueError("device 必须是字符串类型")
+                if device not in ["cpu", "cuda", "mps"]:
+                    raise ValueError("不支持的设备类型")
+
         # 验证输出目录
         if "output_dir" in self.config:
             output_dir = self.config["output_dir"]
             if not isinstance(output_dir, str):
                 raise ValueError("output_dir 必须是字符串类型")
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
     
     def get_dataset_path(self) -> str:
         """获取数据集路径。

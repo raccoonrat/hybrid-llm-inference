@@ -3,12 +3,14 @@ import numpy as np
 import torch
 import math
 from src.scheduling.task_allocator import TaskAllocator
+from src.scheduling.base_scheduler import BaseScheduler
 
-class TaskScheduler:
+class TaskBasedScheduler(BaseScheduler):
     """任务调度器，负责管理和分配任务"""
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Dict[str, Any]):
         """初始化调度器"""
+        super().__init__(config)
         if config is None:
             config = {
                 "hardware_config": {
@@ -50,15 +52,42 @@ class TaskScheduler:
         self.current_batch = {"apple_m1_pro": [], "nvidia_rtx4050": []}  # 当前批次任务
         self.batch_results = {}  # 批次结果缓存
         
+    def _init_scheduler(self) -> None:
+        """初始化调度器的具体实现"""
+        # 初始化设备队列
+        for device in self.device_queues:
+            self.device_queues[device] = []
+        
+        # 初始化缓存
+        self.gpu_cache = {}
+        self.cpu_cache = {}
+        
+        # 初始化设备亲和性
+        self.device_affinity = {}
+        
+        # 初始化批次
+        self.current_batch = {"apple_m1_pro": [], "nvidia_rtx4050": []}
+        self.batch_results = {}
+        
+        # 预热设备
+        self.warmup()
+        
     def add_task(self, task: Dict[str, Any]) -> None:
         """添加新任务到队列"""
         self.tasks.append(task)
         
-    def schedule_tasks(self, token_threshold: int) -> List[Dict[str, Any]]:
-        """调度所有任务"""
+    def schedule(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """调度所有任务
+
+        Args:
+            tasks: 待调度的任务列表
+
+        Returns:
+            调度后的任务列表
+        """
         scheduled_tasks = []
         
-        for task in self.tasks:
+        for task in tasks:
             # 获取任务分配
             allocations = self.allocator.allocate([{
                 "input_tokens": len(task["input"].split()),

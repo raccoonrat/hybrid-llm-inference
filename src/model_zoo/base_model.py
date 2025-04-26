@@ -2,9 +2,8 @@
 """基础模型模块。"""
 
 import os
-if os.getenv('TEST_MODE') != '1':
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Tuple, Union
@@ -32,14 +31,16 @@ class BaseModel(ABC):
             raise ValueError("模型路径必须是非空字符串")
             
         if os.getenv('TEST_MODE') == '1':
+            self.logger.info("测试模式：跳过模型加载")
             self.model = None
             self.tokenizer = None
-        else:
-            try:
-                self.model = AutoModelForCausalLM.from_pretrained(model_path).to(device)
-                self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-            except Exception as e:
-                raise RuntimeError(f"加载模型失败：{str(e)}")
+            return
+            
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(model_path).to(device)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        except Exception as e:
+            raise RuntimeError(f"加载模型失败：{str(e)}")
                 
     def load_model(self):
         """加载模型。"""

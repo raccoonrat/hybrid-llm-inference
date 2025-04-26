@@ -11,6 +11,7 @@ from src.benchmarking.model_benchmarking import ModelBenchmarking
 from src.benchmarking.base_benchmarking import BaseBenchmarking
 from src.benchmarking.report_generator import ReportGenerator
 from src.toolbox.logger import get_logger
+from src.scheduling.task_based_scheduler import TaskBasedScheduler
 
 @pytest.fixture
 def system_benchmarking():

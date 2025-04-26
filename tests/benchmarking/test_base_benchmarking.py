@@ -1,0 +1,99 @@
+import pytest
+from src.benchmarking.base_benchmarking import BaseBenchmarking
+
+def test_base_benchmarking_config_validation():
+    """测试基准测试配置验证"""
+    # 测试缺少必需字段
+    invalid_config = {
+        "model_name": "test_model",
+        "batch_size": 32
+    }
+    with pytest.raises(ValueError, match=r".*dataset_path.*"):
+        BaseBenchmarking(invalid_config)
+
+    # 测试无效的批处理大小
+    invalid_batch_config = {
+        "model_name": "test_model",
+        "dataset_path": "/path/to/dataset",
+        "batch_size": -1
+    }
+    with pytest.raises(ValueError, match=r".*batch_size.*"):
+        BaseBenchmarking(invalid_batch_config)
+
+    # 测试有效配置
+    valid_config = {
+        "model_name": "test_model",
+        "dataset_path": "/path/to/dataset",
+        "batch_size": 32,
+        "num_threads": 4,
+        "device": "cpu",
+        "metrics": ["latency", "energy", "throughput"]
+    }
+    benchmarking = BaseBenchmarking(valid_config)
+    assert benchmarking.config == valid_config
+
+def test_base_benchmarking_run():
+    """测试基准测试运行方法"""
+    config = {
+        "model_name": "test_model",
+        "dataset_path": "/path/to/dataset",
+        "batch_size": 32,
+        "num_threads": 4,
+        "device": "cpu",
+        "metrics": ["latency", "energy", "throughput"]
+    }
+    benchmarking = BaseBenchmarking(config)
+    
+    # 基类的运行方法应该抛出 NotImplementedError
+    with pytest.raises(NotImplementedError):
+        benchmarking.run()
+
+def test_base_benchmarking_collect_metrics():
+    """测试基准测试指标收集方法"""
+    config = {
+        "model_name": "test_model",
+        "dataset_path": "/path/to/dataset",
+        "batch_size": 32,
+        "num_threads": 4,
+        "device": "cpu",
+        "metrics": ["latency", "energy", "throughput"]
+    }
+    benchmarking = BaseBenchmarking(config)
+    
+    # 基类的指标收集方法应该抛出 NotImplementedError
+    with pytest.raises(NotImplementedError):
+        benchmarking.collect_metrics()
+
+def test_base_benchmarking_validate_metrics():
+    """测试基准测试指标验证"""
+    config = {
+        "model_name": "test_model",
+        "dataset_path": "/path/to/dataset",
+        "batch_size": 32,
+        "num_threads": 4,
+        "device": "cpu",
+        "metrics": ["latency", "energy", "throughput"]
+    }
+    benchmarking = BaseBenchmarking(config)
+
+    # 测试无效的指标数据
+    invalid_metrics = {
+        "latency": [0.1, 0.2, 0.3],
+        # 缺少必需的 energy 指标
+        "throughput": 100.0
+    }
+    with pytest.raises(ValueError, match=r".*energy.*"):
+        benchmarking.validate_metrics(invalid_metrics)
+
+    # 测试有效的指标数据
+    valid_metrics = {
+        "latency": [0.1, 0.2, 0.3],
+        "energy": [50.0, 51.0, 49.0],
+        "throughput": 100.0,
+        "memory_usage": {
+            "max": 2048,
+            "mean": 1024,
+            "min": 512
+        }
+    }
+    assert benchmarking.validate_metrics(valid_metrics) == valid_metrics 

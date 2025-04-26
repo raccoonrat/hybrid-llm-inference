@@ -2,7 +2,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import matplotlib
 matplotlib.use('Agg')  # 使用非GUI后端
 import matplotlib.pyplot as plt
@@ -11,35 +11,241 @@ from toolbox.logger import get_logger
 import logging
 import pandas as pd
 from datetime import datetime
+import csv
+import seaborn as sns
 
 logger = get_logger(__name__)
 
 class ReportGenerator:
-    """报告生成器类。"""
-    
-    def __init__(self, output_dir: str, style_config: Dict[str, Any] = None, output_format: str = "json") -> None:
+    """基准测试报告生成器。"""
+
+    def __init__(self, output_dir: str, style_config: Optional[Dict[str, Any]] = None):
         """初始化报告生成器。
 
         Args:
-            output_dir: 输出目录
-            style_config: 图表样式配置
-            output_format: 输出格式，支持 "json", "csv", "txt", "markdown"
+            output_dir: 输出目录路径
+            style_config: 可选的样式配置
         """
         self.output_dir = output_dir
-        self.logger = get_logger(__name__)
-        self.output_format = output_format
+        self.style_config = style_config or {}
+        self.logger = logging.getLogger(__name__)
+        self.output_format = "json"  # 默认输出格式
+        os.makedirs(output_dir, exist_ok=True)
+        self.visualization_dir = os.path.join(output_dir, "visualizations")
+        os.makedirs(self.visualization_dir, exist_ok=True)
+
+    def _validate_data(self, data: Dict[str, Any]) -> None:
+        """验证基准测试数据。
+
+        Args:
+            data: 基准测试数据
+
+        Raises:
+            ValueError: 当数据无效时抛出
+        """
+        if not data:
+            raise ValueError("基准测试结果不能为空")
+        
+        # 检查必需字段
+        if "metrics" not in data:
+            raise ValueError("缺少必需字段: metrics")
+        
+        # 添加时间戳（如果不存在）
+        if "timestamp" not in data:
+            data["timestamp"] = datetime.now().isoformat()
+        
+        # 验证 metrics 字段
+        metrics = data["metrics"]
+        if not isinstance(metrics, dict):
+            raise ValueError("metrics 必须是字典类型")
+        
+        # 检查是否有任何指标数据
+        if not metrics:
+            raise ValueError("metrics 不能为空")
+        
+        # 验证指标值类型
+        for key, value in metrics.items():
+            if not isinstance(value, (int, float, list, dict)):
+                raise ValueError(f"指标 {key} 的值必须是数值、列表或字典类型")
+            
+            if isinstance(value, list):
+                if not all(isinstance(x, (int, float)) for x in value):
+                    raise ValueError(f"指标 {key} 的列表值必须全部为数值类型")
+            
+            if isinstance(value, dict):
+                if not all(isinstance(x, (int, float)) for x in value.values()):
+                    raise ValueError(f"指标 {key} 的字典值必须全部为数值类型")
+        
+        required_metrics = ['energy', 'latency']
+        for metric in required_metrics:
+            if metric not in metrics:
+                raise ValueError(f"metrics 缺少必需字段: {metric}")
+
+    def _generate_visualizations(self, data: Dict[str, Any], include_tradeoff: bool = True) -> List[str]:
+        """生成基准测试结果的可视化图表。
+
+        Args:
+            data: 基准测试数据
+            include_tradeoff: 是否包含权衡分析图表
+
+        Returns:
+            生成的图表文件路径列表
+        """
+        chart_files = []
+        metrics = data['metrics']
+        
+        # 使用默认样式
+        plt.style.use('default')
+        
+        # 创建输出目录
+        output_dir = os.path.join(self.output_dir, "visualizations")
         os.makedirs(output_dir, exist_ok=True)
         
         # 设置图表样式
-        if style_config:
-            plt.rcParams.update(style_config)
+        plt.figure(figsize=self.style_config.get('figsize', (10, 6)))
         
-        # 配置中文字体
-        plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
-        plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+        # 生成延迟分布图（如果存在）
+        if 'latency' in metrics:
+            plt.clf()
+            latency_data = metrics['latency']
+            if isinstance(latency_data, list):
+                sns.histplot(latency_data, kde=True)
+            elif isinstance(latency_data, (int, float)):
+                plt.bar(['latency'], [latency_data])
+            plt.title('延迟分布')
+            plt.xlabel('延迟 (ms)')
+            plt.ylabel('频率')
+            latency_plot = os.path.join(output_dir, 'latency_distribution.png')
+            plt.savefig(latency_plot)
+            chart_files.append(latency_plot)
         
-        self.logger.info("报告生成器初始化完成")
-    
+        # 生成能耗分布图（如果存在）
+        if 'energy' in metrics:
+            plt.clf()
+            energy_data = metrics['energy']
+            if isinstance(energy_data, list):
+                sns.histplot(energy_data, kde=True)
+            elif isinstance(energy_data, (int, float)):
+                plt.bar(['energy'], [energy_data])
+            plt.title('能耗分布')
+            plt.xlabel('能耗 (J)')
+            plt.ylabel('频率')
+            energy_plot = os.path.join(output_dir, 'energy_distribution.png')
+            plt.savefig(energy_plot)
+            chart_files.append(energy_plot)
+        
+        # 生成其他指标的分布图
+        for key, value in metrics.items():
+            if key not in ['latency', 'energy'] and isinstance(value, list):
+                plt.clf()
+                sns.histplot(value, kde=True)
+                plt.title(f'{key} 分布')
+                plt.xlabel(key)
+                plt.ylabel('频率')
+                plot_path = os.path.join(output_dir, f'{key}_distribution.png')
+                plt.savefig(plot_path)
+                chart_files.append(plot_path)
+        
+        # 生成权衡图（如果存在相关指标）
+        if include_tradeoff and 'latency' in metrics and 'energy' in metrics:
+            plt.clf()
+            latency_data = metrics['latency']
+            energy_data = metrics['energy']
+            
+            if isinstance(latency_data, list) and isinstance(energy_data, list):
+                sns.scatterplot(x=latency_data, y=energy_data)
+            elif isinstance(latency_data, (int, float)) and isinstance(energy_data, (int, float)):
+                plt.scatter([latency_data], [energy_data])
+            
+            plt.title('延迟-能耗权衡')
+            plt.xlabel('延迟 (ms)')
+            plt.ylabel('能耗 (J)')
+            tradeoff_plot = os.path.join(output_dir, 'latency_energy_tradeoff.png')
+            plt.savefig(tradeoff_plot)
+            chart_files.append(tradeoff_plot)
+        
+        plt.close('all')
+        return chart_files
+
+    def generate_report(
+        self, 
+        benchmark_results: Dict[str, Any], 
+        output_format: str = "json",
+        include_visualizations: bool = True
+    ) -> str:
+        """生成基准测试报告。
+
+        Args:
+            benchmark_results: 基准测试结果
+            output_format: 报告格式 ("json" 或 "markdown")
+            include_visualizations: 是否包含可视化图表
+
+        Returns:
+            str: 报告文件路径
+        """
+        # 验证数据
+        self._validate_data(benchmark_results)
+        
+        # 生成可视化
+        if include_visualizations and not benchmark_results.get("charts_generated"):
+            self._generate_visualizations(benchmark_results)
+            benchmark_results["charts_generated"] = True
+
+        # 生成报告文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_filename = f"benchmark_report_{timestamp}"
+        
+        if output_format.lower() == "json":
+            report_path = os.path.join(self.output_dir, f"{report_filename}.json")
+            with open(report_path, "w", encoding="utf-8") as f:
+                json.dump(benchmark_results, f, indent=2, ensure_ascii=False)
+        elif output_format.lower() == "markdown":
+            report_path = os.path.join(self.output_dir, f"{report_filename}.md")
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(self._generate_markdown(benchmark_results))
+        elif output_format.lower() == "csv":
+            report_path = os.path.join(self.output_dir, f"{report_filename}.csv")
+            self._generate_csv_report(benchmark_results, report_path)
+        else:
+            raise ValueError(f"不支持的报告格式: {output_format}")
+
+        return report_path
+
+    def _generate_markdown(self, results: Dict[str, Any]) -> str:
+        """生成 Markdown 格式的报告。"""
+        md_content = ["# 基准测试报告\n"]
+        
+        # 添加时间戳
+        md_content.append(f"生成时间: {results['timestamp']}\n")
+        
+        # 添加指标摘要
+        if "metrics" in results:
+            md_content.append("## 性能指标\n")
+            metrics = results["metrics"]
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    md_content.append(f"- {key}: {value}\n")
+                elif isinstance(value, list):
+                    avg_value = sum(value) / len(value) if value else 0
+                    md_content.append(f"- {key} (平均): {avg_value:.2f}\n")
+                elif isinstance(value, dict):
+                    md_content.append(f"\n### {key}\n")
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, (int, float)):
+                            md_content.append(f"- {sub_key}: {sub_value}\n")
+
+        # 添加图表引用
+        if results.get("charts_generated"):
+            md_content.append("\n## 可视化图表\n")
+            if 'latency' in results['metrics']:
+                md_content.append("![延迟分布](latency_distribution.png)\n")
+            if 'energy' in results['metrics']:
+                md_content.append("![能耗分布](energy_distribution.png)\n")
+            if 'latency' in results['metrics'] and 'energy' in results['metrics']:
+                md_content.append("![延迟-能耗权衡](latency_energy_tradeoff.png)\n")
+
+        return "\n".join(md_content)
+
     def _validate_tradeoff_results(self, tradeoff_results: Dict[str, Any]) -> None:
         """验证权衡结果的格式和内容。
 
@@ -186,83 +392,42 @@ class ReportGenerator:
     
         return True
     
-    def plot_time_series(self, metrics: Dict[str, Any], metric_name: str) -> None:
+    def plot_time_series(self, data: List[float], title: str, xlabel: str, ylabel: str, output_path: str):
         """绘制时间序列图。
 
         Args:
-            metrics: 指标数据
-            metric_name: 指标名称
+            data: 时间序列数据
+            title: 图表标题
+            xlabel: X轴标签
+            ylabel: Y轴标签
+            output_path: 输出文件路径
         """
         plt.figure(figsize=(10, 6))
-        
-        # 获取指标值
-        metric_value = metrics.get(metric_name)
-        
-        # 处理不同类型的指标值
-        if isinstance(metric_value, (int, float)):
-            # 单个值的情况
-            plt.plot([0], [metric_value], marker='o', label=metric_name)
-        elif isinstance(metric_value, list):
-            # 列表值的情况
-            x = range(len(metric_value))
-            plt.plot(x, metric_value, label=metric_name)
-        elif isinstance(metric_value, dict):
-            # 字典值的情况，绘制每个子指标
-            for key, values in metric_value.items():
-                if isinstance(values, list):
-                    x = range(len(values))
-                    plt.plot(x, values, label=f"{metric_name}_{key}")
-                elif isinstance(values, (int, float)):
-                    plt.plot([0], [values], marker='o', label=f"{metric_name}_{key}")
-        
-        plt.title(f"{metric_name} 时间序列")
-        plt.xlabel("时间点")
-        plt.ylabel(metric_name)
-        plt.legend()
+        plt.plot(data)
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
         plt.grid(True)
-        
-        # 保存图表
-        output_path = os.path.join(self.output_dir, f"{metric_name}_time_series.png")
         plt.savefig(output_path)
-        plt.close()  # 关闭图表以释放内存
+        plt.close()
     
-    def plot_boxplot(self, metrics: Dict[str, Any], metric_name: str) -> None:
+    def plot_boxplot(self, data: Dict[str, List[float]], title: str, xlabel: str, ylabel: str, output_path: str):
         """绘制箱线图。
 
         Args:
-            metrics: 指标数据
-            metric_name: 指标名称
+            data: 箱线图数据，键为类别，值为数值列表
+            title: 图表标题
+            xlabel: X轴标签
+            ylabel: Y轴标签
+            output_path: 输出文件路径
         """
         plt.figure(figsize=(10, 6))
-        data = []
-        labels = []
-        
-        # 处理单个值的情况
-        if isinstance(metrics, dict):
-            if metric_name in metrics:
-                if isinstance(metrics[metric_name], list):
-                    data.append(metrics[metric_name])
-                    labels.append(metric_name)
-                else:
-                    data.append([metrics[metric_name]])
-                    labels.append(metric_name)
-            else:
-                for model, model_data in metrics.items():
-                    if isinstance(model_data, dict) and metric_name in model_data:
-                        if isinstance(model_data[metric_name], list):
-                            data.append(model_data[metric_name])
-                        else:
-                            data.append([model_data[metric_name]])
-                        labels.append(model)
-        
-        if data:  # 只在有数据时绘图
-            plt.boxplot(data, labels=labels)
-            plt.ylabel(metric_name.capitalize())
-            plt.title(f"{metric_name.capitalize()} Distribution")
-            plt.grid(True)
-            plt.tight_layout()
-            
-            plt.savefig(os.path.join(self.output_dir, f"{metric_name}_boxplot.png"))
+        plt.boxplot(data.values(), labels=data.keys())
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.grid(True)
+        plt.savefig(output_path)
         plt.close()
     
     def plot_scatter(self, metrics: Dict[str, Any], x_metric: str, y_metric: str) -> None:
@@ -319,48 +484,25 @@ class ReportGenerator:
         for i, model in enumerate(models):
             for j, metric in enumerate(metric_names):
                 if metric in metrics[model]:
-                    if isinstance(metrics[model][metric], list):
-                        data[i, j] = np.mean(metrics[model][metric])
+                    value = metrics[model][metric]
+                    if isinstance(value, dict):
+                        # 跳过字典类型的值
+                        continue
+                    elif isinstance(value, list):
+                        data[i, j] = np.mean(value)
                     else:
-                        data[i, j] = metrics[model][metric]
+                        data[i, j] = float(value)
         
         plt.imshow(data, aspect='auto', cmap='YlOrRd')
         plt.colorbar()
         plt.xticks(range(len(metric_names)), metric_names, rotation=45)
         plt.yticks(range(len(models)), models)
-        plt.title("Performance Metrics Heatmap")
+        plt.title("性能指标热力图")
         plt.tight_layout()
         
         plt.savefig(os.path.join(self.output_dir, "metrics_heatmap.png"))
         plt.close()
     
-    def _validate_data(self, data):
-        """验证数据格式。
-
-        Args:
-            data (dict): 要验证的数据
-
-        Raises:
-            ValueError: 如果数据格式无效
-        """
-        if not data:
-            raise ValueError("基准测试数据不能为空")
-
-        # 检查是否是系统基准测试数据格式
-        if "metrics" in data:
-            if not isinstance(data["metrics"], dict):
-                raise ValueError("metrics必须是字典类型")
-            return
-
-        # 检查是否是模型基准测试数据格式
-        if isinstance(data, dict) and all(isinstance(v, dict) for v in data.values()):
-            for model, metrics in data.items():
-                if not all(k in metrics for k in ["throughput", "latency", "energy", "runtime"]):
-                    raise ValueError(f"模型 {model} 缺少必要的性能指标")
-            return
-
-        raise ValueError("无效的基准测试数据格式")
-
     def _plot_tradeoff_curve(self, data, output_path):
         """绘制权衡曲线。
 
@@ -404,195 +546,36 @@ class ReportGenerator:
             self.logger.error(f"绘制权衡曲线时发生错误: {str(e)}")
             raise
 
-    def generate_report(self, data: dict, format: str = None, include_visualizations: bool = False, template: str = None) -> str:
-        """生成基准测试报告。
+    def _generate_time_series_plot(self, metric_name: str, metric_values: List[float], output_path: str) -> None:
+        """生成时间序列图。
 
         Args:
-            data: 基准测试数据
-            format: 输出格式，支持 "json", "csv", "txt", "markdown"
-            include_visualizations: 是否包含可视化图表
-            template: 报告模板，可选
-
-        Returns:
-            生成的报告文件路径
+            metric_name: 指标名称
+            metric_values: 指标值列表
+            output_path: 输出文件路径
         """
-        if not data:
-            raise ValueError("基准测试结果不能为空")
-            
-        # 使用指定的格式或默认格式
-        output_format = format or self.output_format
-        
-        # 验证数据格式
-        self._validate_data(data)
-        
-        # 生成报告文件路径
-        report_path = os.path.join(self.output_dir, f"benchmark_report.{output_format}")
-        
-        # 生成权衡曲线（如果有并行指标）
-        if "parallel_metrics" in data:
-            curve_path = os.path.join(self.output_dir, "tradeoff_curve.png")
-            self._plot_tradeoff_curve(data, curve_path)
-        
-        # 生成可视化图表（如果需要）
-        if include_visualizations:
-            self._generate_visualizations(data)
-        
-        # 根据格式生成报告
-        if output_format == "json":
-            self._generate_json_report(data, report_path)
-        elif output_format == "csv":
-            self._generate_csv_report(data, report_path)
-        elif output_format == "txt":
-            self._generate_text_report(data, report_path)
-        elif output_format == "markdown":
-            self._generate_markdown_report(data, report_path, include_visualizations)
-        else:
-            raise ValueError(f"不支持的输出格式: {output_format}")
-            
-        return report_path
-        
-    def export_raw_data(self, data: dict, format: str = "json") -> str:
-        """导出原始数据。
+        plt.figure(figsize=(10, 6))
+        plt.plot(range(len(metric_values)), metric_values, marker='o')
+        plt.title(f"{metric_name} 时间序列")
+        plt.xlabel("时间点")
+        plt.ylabel(metric_name)
+        plt.grid(True)
+        plt.savefig(output_path)
+        plt.close()
+
+    def _generate_csv_report(self, data: Dict[str, Any], output_path: str) -> str:
+        """生成 CSV 格式的报告。
 
         Args:
             data: 要导出的数据
-            format: 输出格式，支持 "json", "csv"
+            output_path: 输出文件路径
 
         Returns:
-            导出的数据文件路径
+            str: CSV 文件的路径
         """
-        if not data:
-            raise ValueError("导出数据不能为空")
-            
-        # 生成导出文件路径
-        export_path = os.path.join(self.output_dir, f"raw_data.{format}")
-        
-        # 根据格式导出数据
-        if format == "json":
-            with open(export_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        elif format == "csv":
-            # 将数据转换为DataFrame格式
-            df = pd.DataFrame(data)
-            df.to_csv(export_path, index=False, encoding="utf-8")
-        else:
-            raise ValueError(f"不支持的导出格式: {format}")
-            
-        return export_path
-        
-    def _generate_text_report(self, data: dict, report_path: str) -> None:
-        """生成文本格式报告。
-
-        Args:
-            data: 基准测试数据
-            report_path: 报告文件路径
-        """
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write("基准测试报告\n")
-            f.write("============\n\n")
-            
-            # 写入系统信息
-            if "system_info" in data:
-                f.write("系统信息\n")
-                f.write("--------\n")
-                for key, value in data["system_info"].items():
-                    f.write(f"{key}: {value}\n")
-                f.write("\n")
-                
-            # 写入模型信息
-            if "model_info" in data:
-                f.write("模型信息\n")
-                f.write("--------\n")
-                for key, value in data["model_info"].items():
-                    f.write(f"{key}: {value}\n")
-                f.write("\n")
-                
-            # 写入指标数据
-            if "metrics" in data:
-                f.write("性能指标\n")
-                f.write("--------\n")
-                for metric, value in data["metrics"].items():
-                    f.write(f"{metric}: {value}\n")
-                f.write("\n")
-                
-            # 写入调度统计
-            if "scheduler_stats" in data:
-                f.write("调度统计\n")
-                f.write("--------\n")
-                for stat, value in data["scheduler_stats"].items():
-                    f.write(f"{stat}: {value}\n")
-                    
-    def _generate_visualizations(self, data: dict) -> None:
-        """生成可视化图表。
-
-        Args:
-            data: 基准测试数据
-        """
-        if "metrics" in data:
-            metrics = data["metrics"]
-            
-            # 生成时间序列图
-            for metric in ["throughput", "latency", "memory_usage", "power_usage"]:
-                if metric in metrics:
-                    self.plot_time_series(metrics, metric)
-                    
-            # 生成箱线图
-            for metric in ["throughput", "latency", "memory_usage", "power_usage"]:
-                if metric in metrics:
-                    self.plot_boxplot(metrics, metric)
-                    
-            # 生成散点图（如果有多个指标）
-            if all(m in metrics for m in ["latency", "throughput"]):
-                self.plot_scatter(metrics, "latency", "throughput")
-            if all(m in metrics for m in ["power_usage", "throughput"]):
-                self.plot_scatter(metrics, "power_usage", "throughput")
-            
-            # 生成热力图（如果有足够的指标）
-            if len(metrics) >= 2:
-                self.plot_heatmap(metrics)
-
-    def _generate_markdown_report(self, data, report_path, include_visualizations):
-        """生成Markdown格式的基准测试报告。"""
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write("# 基准测试报告\n\n")
-            
-            # 写入基本指标
-            f.write("## 基本指标\n\n")
-            for key, value in data["metrics"].items():
-                f.write(f"- {key}: {value:.2f}\n")
-                
-            # 写入调度指标（如果存在）
-            if "scheduling_metrics" in data:
-                f.write("\n## 调度指标\n\n")
-                for key, value in data["scheduling_metrics"].items():
-                    f.write(f"- {key}: {value}\n")
-                
-            # 生成权衡曲线（如果有并行指标）
-            if "parallel_metrics" in data:
-                curve_path = os.path.join(os.path.dirname(report_path), "tradeoff_curve.png")
-                self._plot_tradeoff_curve(data, curve_path)
-                f.write(f"\n## 权衡曲线\n\n![权衡曲线]({os.path.basename(curve_path)})\n")
-            
-            # 生成可视化图表（如果需要）
-            if include_visualizations:
-                f.write("\n## 可视化图表\n\n")
-                metrics = data["metrics"]
-                for metric in ["throughput", "latency", "memory_usage", "power_usage"]:
-                    if metric in metrics:
-                        chart_path = f"{metric}_time_series.png"
-                        f.write(f"\n### {metric.capitalize()} 时间序列\n\n")
-                        f.write(f"![{metric} 时间序列]({chart_path})\n")
-
-    def _generate_json_report(self, data, report_path):
-        """生成JSON格式的基准测试报告。"""
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-
-    def _generate_csv_report(self, data, report_path):
-        """生成CSV格式的基准测试报告。"""
-        # 将数据转换为适合 CSV 的格式
         df = pd.DataFrame(data)
-        df.to_csv(report_path, index=False)
+        df.to_csv(output_path, index=False, encoding="utf-8")
+        return output_path
 
     def _generate_system_report(self, data, report_path, output_format):
         """生成系统基准测试报告。"""
