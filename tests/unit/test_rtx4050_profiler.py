@@ -7,8 +7,8 @@ import torch
 import pynvml
 from unittest.mock import patch, MagicMock
 
-from ...src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from ...src.toolbox.logger import get_logger
+from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from src.toolbox.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -78,7 +78,7 @@ def test_initialization(profiler, mock_nvml):
     assert profiler.device_type == "RTX4050"
     assert profiler.idle_power == 20.0
     assert profiler.sample_interval == 0.1
-        assert profiler.initialized
+    assert profiler.initialized
 
 def test_power_measurement(profiler, mock_nvml):
     """测试功率测量功能。"""

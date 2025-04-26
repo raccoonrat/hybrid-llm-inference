@@ -6,9 +6,9 @@ import time
 import threading
 import numpy as np
 
-from ...src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from ...src.scheduling.task_allocator import TaskAllocator
-from ...src.toolbox.logger import get_logger
+from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from src.scheduling.task_allocator import TaskAllocator
+from src.toolbox.logger import get_logger
 from typing import Dict, Any, List
 
 logger = get_logger(__name__)

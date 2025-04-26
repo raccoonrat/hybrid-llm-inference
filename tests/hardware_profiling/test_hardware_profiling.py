@@ -6,10 +6,10 @@ import torch
 import pynvml
 from unittest.mock import patch, MagicMock
 
-from ..src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from ..src.hardware_profiling.a800_profiling import A800Profiler
-from ..src.hardware_profiling.m1_profiler import M1Profiler
-from ..src.hardware_profiling import get_profiler
+from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from src.hardware_profiling.a800_profiling import A800Profiler
+from src.hardware_profiling.m1_profiler import M1Profiler
+from src.hardware_profiling import get_profiler
 
 # 测试配置
 TEST_CONFIG = {

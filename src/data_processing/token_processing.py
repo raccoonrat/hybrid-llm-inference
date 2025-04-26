@@ -12,6 +12,8 @@ from .token_processor import TokenProcessor
 import logging
 from collections import Counter
 import seaborn as sns
+import re
+import time
 
 # 设置中文字体
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
@@ -94,35 +96,56 @@ class TokenProcessing:
             }
         return result
             
-    def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict:
-        """计算token分布并可选地保存可视化结果"""
+    def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict[str, float]:
+        """计算token分布。
+
+        Args:
+            df (pd.DataFrame): 包含token数据的DataFrame
+            save_path (Optional[str], optional): 保存分布图的路径. Defaults to None.
+
+        Returns:
+            Dict[str, float]: token分布字典
+
+        Raises:
+            ValueError: 当输入数据无效或保存路径无效时
+        """
         if df is None:
             raise ValueError("输入DataFrame不能为None")
-            
-        token_df = self.get_token_data(df)
-        if token_df.empty:
-            self.logger.warning("没有有效的token数据")
+
+        if df.empty:
+            self.logger.warning("输入数据为空")
             return {}
-            
-        # 过滤无效的token数据
-        valid_tokens = token_df["input_tokens"].apply(
-            lambda x: isinstance(x, list) and all(isinstance(t, (int, float)) for t in x)
-        )
-        token_df = token_df[valid_tokens]
-        
-        if token_df.empty:
-            self.logger.warning("没有有效的token数据")
+
+        # 确定使用哪一列
+        token_column = 'input_tokens' if 'input_tokens' in df.columns else 'token'
+        if token_column not in df.columns:
+            self.logger.warning(f"DataFrame中缺少所需的列: {token_column}")
             return {}
-            
-        # 计算token频率并转换为字符串键
-        all_tokens = [t for tokens in token_df["input_tokens"] for t in tokens]
-        token_counts = pd.Series(all_tokens).value_counts()
-        distribution = {str(k): v for k, v in (token_counts / token_counts.sum()).to_dict().items()}
-        
-        # 如果需要保存可视化结果
+
+        # 展平所有token列表并计算频率分布
+        all_tokens = []
+        for tokens in df[token_column]:
+            if isinstance(tokens, list):
+                all_tokens.extend(map(str, tokens))
+            else:
+                all_tokens.append(str(tokens))
+
+        if not all_tokens:
+            self.logger.warning("没有找到有效的token")
+            return {}
+
+        # 计算分布
+        total_tokens = len(all_tokens)
+        distribution = {token: count/total_tokens for token, count in Counter(all_tokens).items()}
+
+        # 如果提供了保存路径，则保存分布图
         if save_path:
-            self._save_distribution_plot(distribution, save_path)
-            
+            try:
+                self._save_distribution_plot(distribution, save_path)
+            except ValueError as e:
+                self.logger.error(f"保存分布图时出错: {str(e)}")
+                raise
+
         return distribution
         
     def _save_distribution_plot(self, distribution: Dict[str, float], save_path: str) -> None:
@@ -135,47 +158,105 @@ class TokenProcessing:
         Raises:
             ValueError: 当路径无效或没有写入权限时
         """
+        if not save_path or save_path.isspace():
+            raise ValueError("保存路径不能为空")
+
+        # 标准化路径
         try:
-            # 转换为绝对路径
-            abs_path = os.path.abspath(save_path)
-            directory = os.path.dirname(abs_path)
-            
-            # 检查路径有效性
-            if not os.path.isabs(abs_path):
-                raise ValueError("必须提供绝对路径")
-                
-            # 检查目录是否存在
-            if not os.path.exists(directory):
-                raise ValueError(f"目录不存在: {directory}")
-                
-            # 检查文件名是否包含无效字符
-            filename = os.path.basename(abs_path)
-            invalid_chars = '<>:"/\\|?*' if os.name == 'nt' else '/'
-            if any(char in filename for char in invalid_chars):
-                raise ValueError(f"文件名包含无效字符: {filename}")
-                
-            # 检查目录写入权限
-            if not os.access(directory, os.W_OK):
-                raise ValueError(f"没有目录的写入权限: {directory}")
-                
-            # 如果文件已存在，检查是否可写
-            if os.path.exists(abs_path) and not os.access(abs_path, os.W_OK):
-                raise ValueError(f"没有文件的写入权限: {abs_path}")
-            
-            # 创建图表
+            save_path = os.path.abspath(save_path)
+        except Exception as e:
+            raise ValueError(f"无效的路径格式: {str(e)}")
+
+        # 基本路径验证
+        if not save_path.lower().endswith('.png'):
+            raise ValueError("必须是.png格式")
+
+        # 检查文件名
+        file_name = os.path.basename(save_path)
+        dir_path = os.path.dirname(save_path)
+
+        # Windows特定检查
+        if os.name == 'nt':
+            # 检查保留名称
+            reserved_names = {'con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4',
+                            'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3',
+                            'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'}
+            if file_name.split('.')[0].lower() in reserved_names:
+                raise ValueError("文件名不能使用Windows保留名称")
+
+            # 检查无效字符
+            invalid_chars = '<>:"|?*\\'
+            if any(char in file_name for char in invalid_chars):
+                raise ValueError("文件名包含无效字符")
+
+            # 检查长路径
+            if len(save_path) > 260 and not save_path.startswith('\\\\?\\'):
+                raise ValueError("路径长度超过Windows限制(260字符)")
+
+            # 检查UNC路径
+            if save_path.startswith('\\\\'):
+                if not os.path.exists(dir_path):
+                    raise ValueError("无法访问网络路径")
+
+        # 检查系统目录
+        system_dirs = [
+            os.environ.get('SystemRoot', 'C:\\Windows'),
+            os.environ.get('ProgramFiles', 'C:\\Program Files'),
+            os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)')
+        ]
+        if any(save_path.lower().startswith(d.lower()) for d in system_dirs if d):
+            raise ValueError("不能保存到系统目录")
+
+        # 检查目录是否存在
+        if not os.path.exists(dir_path):
+            raise ValueError(f"目录不存在: {dir_path}")
+
+        # 权限检查
+        try:
+            # 检查目录权限
+            if not os.access(dir_path, os.W_OK):
+                raise ValueError("没有目录写入权限")
+
+            # 如果文件已存在，检查文件权限
+            if os.path.exists(save_path):
+                if not os.access(save_path, os.W_OK):
+                    raise ValueError("没有文件写入权限")
+                try:
+                    # 尝试打开文件进行写入测试
+                    with open(save_path, 'a'):
+                        pass
+                except (IOError, OSError):
+                    raise ValueError("文件被锁定或无法写入")
+            else:
+                # 测试是否可以在目录中创建新文件
+                test_file = os.path.join(dir_path, f"test_{int(time.time())}.tmp")
+                try:
+                    with open(test_file, 'w') as f:
+                        f.write('test')
+                    os.remove(test_file)
+                except (IOError, OSError):
+                    raise ValueError("无法在目录中创建新文件")
+
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f"权限检查失败: {str(e)}")
+
+        # 创建和保存图表
+        try:
             plt.figure(figsize=(10, 6))
             plt.bar(distribution.keys(), distribution.values())
             plt.title('Token Distribution')
             plt.xlabel('Token')
             plt.ylabel('Frequency')
             plt.xticks(rotation=45)
-            
-            # 保存图表
-            plt.savefig(abs_path)
-            plt.close()
-            
-            self.logger.info(f"分布图已保存到: {abs_path}")
-            
+            plt.tight_layout()
+
+            plt.savefig(save_path)
+            self.logger.info(f"分布图已保存到: {save_path}")
+
         except Exception as e:
-            self.logger.error(f"保存分布图时出错: {str(e)}")
-            raise ValueError(f"保存分布图失败: {str(e)}")
+            raise ValueError(f"保存图表失败: {str(e)}")
+
+        finally:
+            plt.close()

@@ -5,8 +5,8 @@ import pytest
 import pynvml
 from unittest.mock import patch, MagicMock
 
-from ..src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from ..src.toolbox.logger import get_logger
+from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from src.toolbox.logger import get_logger
 
 logger = get_logger(__name__)
 
