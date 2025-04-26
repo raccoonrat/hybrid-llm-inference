@@ -83,15 +83,24 @@ class TokenProcessing:
                         
                     # 在Windows上，检查路径是否包含无效字符
                     if os.name == 'nt':
-                        invalid_chars = '<>:"|?*'
-                        if any(char in save_path for char in invalid_chars):
-                            raise ValueError(f"保存路径包含无效字符：{save_path}")
+                        # 检查路径格式是否符合Windows规范
+                        if save_path.startswith('/'):
+                            raise ValueError(f"Windows路径不能以/开头：{save_path}")
+                        # Windows路径中不允许的字符（不包括冒号，因为驱动器路径需要）
+                        invalid_chars = '<>"|?*'
+                        if any(char in os.path.basename(save_path) for char in invalid_chars):
+                            raise ValueError(f"文件名包含无效字符：{os.path.basename(save_path)}")
                             
                     save_dir = os.path.dirname(save_path)
                     if not os.path.exists(save_dir):
                         raise ValueError(f"保存路径的目录不存在：{save_dir}")
+                        
+                    # 检查目录和文件的写入权限
                     if not os.access(save_dir, os.W_OK):
                         raise ValueError(f"没有写入权限：{save_dir}")
+                    if os.path.exists(save_path) and not os.access(save_path, os.W_OK):
+                        raise ValueError(f"没有写入权限：{save_path}")
+                        
                     self._visualize_distribution(distribution, save_path)
                 except Exception as e:
                     self.logger.error(f"保存分布图失败: {str(e)}")

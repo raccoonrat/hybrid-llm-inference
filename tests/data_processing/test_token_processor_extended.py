@@ -10,6 +10,8 @@ from pathlib import Path
 import json
 from src.data_processing.token_processor import TokenProcessor, MockTokenizer
 from src.data_processing.token_processing import TokenProcessing
+import matplotlib
+matplotlib.use('Agg')  # 使用非交互式后端
 
 @pytest.fixture
 def model_path(tmp_path):
@@ -178,6 +180,121 @@ def test_token_processing_concurrent_processing(model_path):
     
     # 结果应该相同
     pd.testing.assert_frame_equal(result1, result2)
+
+def test_token_processing_visualization(model_path, tmp_path):
+    """测试token分布可视化功能"""
+    processor = TokenProcessing(model_path)
+    
+    # 准备测试数据
+    df = pd.DataFrame({
+        'input_tokens': [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+    })
+    
+    # 测试保存到临时目录
+    save_path = os.path.join(tmp_path, "distribution.png")
+    distribution = processor.compute_distribution(df, save_path)
+    
+    # 验证结果
+    assert os.path.exists(save_path)
+    assert isinstance(distribution, dict)
+    assert len(distribution) > 0
+    
+def test_token_processing_empty_visualization(model_path, tmp_path):
+    """测试空数据的可视化处理"""
+    processor = TokenProcessing(model_path)
+    
+    # 准备空数据
+    df = pd.DataFrame({
+        'input_tokens': []
+    })
+    
+    # 测试保存到临时目录
+    save_path = os.path.join(tmp_path, "empty_distribution.png")
+    distribution = processor.compute_distribution(df, save_path)
+    
+    # 验证结果
+    assert isinstance(distribution, dict)
+    assert len(distribution) == 0
+    
+def test_token_processing_invalid_tokens(model_path):
+    """测试无效token数据的处理"""
+    processor = TokenProcessing(model_path)
+    
+    # 准备包含None和非列表数据的DataFrame
+    df = pd.DataFrame({
+        'input_tokens': [None, 123, [1, 2, 3], "invalid"]
+    })
+    
+    # 测试分布计算
+    distribution = processor.compute_distribution(df)
+    
+    # 验证结果
+    assert isinstance(distribution, dict)
+    assert len(distribution) > 0  # 应该只包含有效的token
+    
+def test_token_processing_write_permission(model_path, tmp_path):
+    """测试写入权限检查"""
+    processor = TokenProcessing(model_path)
+    
+    # 准备测试数据
+    df = pd.DataFrame({
+        'input_tokens': [[1, 2, 3]]
+    })
+    
+    # 创建一个只读目录
+    readonly_dir = os.path.join(tmp_path, "readonly")
+    os.makedirs(readonly_dir)
+    save_path = os.path.join(readonly_dir, "distribution.png")
+    
+    # 创建一个空文件并设置为只读
+    with open(save_path, 'w') as f:
+        f.write('')
+    
+    # 在Windows上设置文件和目录为只读
+    if os.name == 'nt':
+        os.system(f'attrib +r "{save_path}"')
+        os.system(f'attrib +r "{readonly_dir}"')
+    else:
+        os.chmod(readonly_dir, 0o444)
+        os.chmod(save_path, 0o444)
+    
+    # 测试写入权限检查
+    with pytest.raises(ValueError, match="没有写入权限"):
+        processor.compute_distribution(df, save_path)
+        
+def test_token_processing_mixed_columns(model_path):
+    """测试同时包含input_tokens和token列的情况"""
+    processor = TokenProcessing(model_path)
+    
+    # 准备包含两种列的数据
+    df = pd.DataFrame({
+        'input_tokens': [[1, 2, 3], [4, 5, 6]],
+        'token': ['a', 'b']
+    })
+    
+    # 测试分布计算（应该优先使用input_tokens）
+    distribution = processor.compute_distribution(df)
+    
+    # 验证结果
+    assert isinstance(distribution, dict)
+    assert len(distribution) > 0
+    assert 1 in [float(k) for k in distribution.keys()]  # 确认使用了input_tokens列
+    
+def test_token_processing_visualization_error(model_path, tmp_path):
+    """测试可视化过程中的错误处理"""
+    processor = TokenProcessing(model_path)
+    
+    # 准备测试数据
+    df = pd.DataFrame({
+        'input_tokens': [[1, 2, 3]]
+    })
+    
+    # 使用无效的文件名（包含Windows上的非法字符）
+    save_path = os.path.join(tmp_path, "test<>:.png")
+    
+    # 测试错误处理
+    with pytest.raises(ValueError, match="包含无效字符"):
+        processor.compute_distribution(df, save_path)
 
 @pytest.fixture
 def mock_dataframe():
