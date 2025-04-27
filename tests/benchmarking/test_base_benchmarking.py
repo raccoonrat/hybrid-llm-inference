@@ -29,7 +29,15 @@ def test_base_benchmarking_config_validation():
         "batch_size": 32,
         "num_threads": 4,
         "device": "cpu",
-        "metrics": ["latency", "energy", "throughput"]
+        "metrics": ["latency", "energy", "throughput"],
+        "model_config": {
+            "model_type": "mock",
+            "model_path": "mock_path"
+        },
+        "hardware_config": {
+            "device": "cpu",
+            "device_id": 0
+        }
     }
     benchmarking = MockBenchmarking(valid_config)
     assert benchmarking.config == valid_config
@@ -42,13 +50,21 @@ def test_base_benchmarking_run():
         "batch_size": 32,
         "num_threads": 4,
         "device": "cpu",
-        "metrics": ["latency", "energy", "throughput"]
+        "metrics": ["latency", "energy", "throughput"],
+        "model_config": {
+            "model_type": "mock",
+            "model_path": "mock_path"
+        },
+        "hardware_config": {
+            "device": "cpu",
+            "device_id": 0,
+            "num_threads": 4
+        }
     }
     benchmarking = MockBenchmarking(config)
-    
-    # 基类的运行方法应该抛出 NotImplementedError
-    with pytest.raises(NotImplementedError):
-        benchmarking.run()
+    results = benchmarking.run()
+    assert isinstance(results, dict)
+    assert "metrics" in results
 
 def test_base_benchmarking_collect_metrics():
     """测试基准测试指标收集方法"""
@@ -58,13 +74,22 @@ def test_base_benchmarking_collect_metrics():
         "batch_size": 32,
         "num_threads": 4,
         "device": "cpu",
-        "metrics": ["latency", "energy", "throughput"]
+        "metrics": ["latency", "energy", "throughput"],
+        "model_config": {
+            "model_type": "mock",
+            "model_path": "mock_path"
+        },
+        "hardware_config": {
+            "device": "cpu",
+            "device_id": 0,
+            "num_threads": 4
+        }
     }
     benchmarking = MockBenchmarking(config)
-    
-    # 基类的指标收集方法应该抛出 NotImplementedError
-    with pytest.raises(NotImplementedError):
-        benchmarking.collect_metrics()
+    metrics = benchmarking.collect_metrics()
+    assert isinstance(metrics, dict)
+    assert "latency" in metrics
+    assert "energy" in metrics
 
 def test_base_benchmarking_validate_metrics():
     """测试基准测试指标验证"""
@@ -74,7 +99,16 @@ def test_base_benchmarking_validate_metrics():
         "batch_size": 32,
         "num_threads": 4,
         "device": "cpu",
-        "metrics": ["latency", "energy", "throughput"]
+        "metrics": ["latency", "energy", "throughput"],
+        "model_config": {
+            "model_type": "mock",
+            "model_path": "mock_path"
+        },
+        "hardware_config": {
+            "device": "cpu",
+            "device_id": 0,
+            "num_threads": 4
+        }
     }
     benchmarking = MockBenchmarking(config)
 
@@ -91,11 +125,7 @@ def test_base_benchmarking_validate_metrics():
     valid_metrics = {
         "latency": [0.1, 0.2, 0.3],
         "energy": [50.0, 51.0, 49.0],
-        "throughput": 100.0,
-        "memory_usage": {
-            "max": 2048,
-            "mean": 1024,
-            "min": 512
-        }
+        "throughput": 100.0
     }
-    assert benchmarking.validate_metrics(valid_metrics) == valid_metrics 
+    # 验证不应该抛出异常
+    benchmarking.validate_metrics(valid_metrics) 

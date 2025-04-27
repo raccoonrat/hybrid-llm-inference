@@ -79,17 +79,17 @@ class TestReportGenerator(unittest.TestCase):
 
     def test_tradeoff_curve(self):
         """测试权衡曲线生成。"""
-        curve_path = self.output_dir / "test_curve.png"
-        self.report_generator._plot_tradeoff_curve(self.test_data, str(curve_path))
+        curve_path = os.path.join(self.output_dir, "test_curve.png")
+        self.report_generator._plot_tradeoff_curve(self.test_data, curve_path)
         
         # 验证图表文件是否生成
-        self.assertTrue(curve_path.exists())
+        self.assertTrue(os.path.exists(curve_path))
         
         # 测试数据不足的情况
         invalid_data = self.test_data.copy()
         invalid_data["parallel_metrics"] = []
         with self.assertRaises(ValueError):
-            self.report_generator._plot_tradeoff_curve(invalid_data, str(curve_path))
+            self.report_generator._plot_tradeoff_curve(invalid_data, curve_path)
 
     def test_report_generation(self):
         """测试报告生成。"""
@@ -105,8 +105,8 @@ class TestReportGenerator(unittest.TestCase):
             self.assertIn("scheduling_metrics", content)
             
         # 验证权衡曲线图片是否生成
-        curve_path = self.output_dir / "tradeoff_curve.png"
-        self.assertTrue(curve_path.exists())
+        curve_path = os.path.join(self.output_dir, "tradeoff_curve.png")
+        self.assertTrue(os.path.exists(curve_path))
 
     def tearDown(self):
         """清理测试环境。"""

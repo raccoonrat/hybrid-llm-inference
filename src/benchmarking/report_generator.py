@@ -44,7 +44,12 @@ class ReportGenerator:
 
         Raises:
             ValueError: 当数据无效时抛出
+            TypeError: 当数据类型错误时抛出
         """
+        # 验证数据类型
+        if not isinstance(data, dict):
+            raise TypeError("基准测试数据必须是字典类型")
+            
         if not data:
             raise ValueError("基准测试结果不能为空")
         
@@ -73,23 +78,32 @@ class ReportGenerator:
             if isinstance(value, (int, float)):
                 return True
             elif isinstance(value, list):
+                if not value:
+                    return False
                 return all(isinstance(x, (int, float)) for x in value)
             elif isinstance(value, dict):
                 # 跳过 summary 字段的验证
                 if "summary" in value:
                     return True
+                if not value:
+                    return False
                 return all(validate_metric_value(v) for v in value.values())
             return False
 
         # 验证指标值类型
+        invalid_metrics = []
         for key, value in metrics.items():
             if not validate_metric_value(value):
-                raise ValueError(f"指标 {key} 的值必须是数值、数值列表或包含数值的字典")
+                invalid_metrics.append(key)
         
-        required_metrics = ['energy', 'latency']
-        for metric in required_metrics:
-            if metric not in metrics:
-                raise ValueError(f"metrics 缺少必需字段: {metric}")
+        if invalid_metrics:
+            raise ValueError(f"以下指标的值类型无效: {', '.join(invalid_metrics)}")
+        
+        # 验证必需的指标
+        required_metrics = ['latency', 'throughput']  # 修改为实际需要的必需指标
+        missing_metrics = [metric for metric in required_metrics if metric not in metrics]
+        if missing_metrics:
+            raise ValueError(f"缺少必需的指标: {', '.join(missing_metrics)}")
 
     def _generate_visualizations(self, data: Dict[str, Any], include_tradeoff: bool = True) -> List[str]:
         """生成基准测试结果的可视化图表。
@@ -194,28 +208,68 @@ class ReportGenerator:
         plt.close('all')
         return chart_files
 
-    def generate_report(self, data: Dict[str, Any], output_format: str = "json") -> str:
+    def generate_report(self, data: Dict[str, Any], output_format: str = "json", include_visualizations: bool = True) -> str:
         """生成基准测试报告。
 
         Args:
             data: 基准测试数据
-            output_format: 输出格式，支持 "json" 和 "html"
+            output_format: 输出格式，支持 "json"、"html"、"csv" 和 "markdown"
+            include_visualizations: 是否包含可视化图表
 
         Returns:
             报告文件路径
+
+        Raises:
+            ValueError: 当输入数据无效或输出格式不支持时
         """
+        # 验证输入数据
+        self._validate_data(data)
+        
+        # 生成可视化图表
+        chart_files = []
+        if include_visualizations:
+            try:
+                chart_files = self._generate_visualizations(data)
+                # 生成权衡曲线
+                curve_path = os.path.join(self.output_dir, "tradeoff_curve.png")
+                self._plot_tradeoff_curve(data, curve_path)
+            except Exception as e:
+                logger.warning(f"生成可视化图表时出错: {str(e)}")
+
+        # 根据输出格式生成报告
         if output_format == "json":
             report_path = os.path.join(self.output_dir, "report.json")
             with open(report_path, "w", encoding="utf-8") as f:
+                # 添加图表路径到数据中
+                if chart_files:
+                    data["visualizations"] = [os.path.basename(f) for f in chart_files]
                 json.dump(data, f, ensure_ascii=False, indent=2)
         elif output_format == "html":
             report_path = os.path.join(self.output_dir, "report.html")
-            # 生成HTML报告
             html_content = self._generate_html_report(data)
             with open(report_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
+        elif output_format == "csv":
+            report_path = os.path.join(self.output_dir, "report.csv")
+            # 将数据扁平化为CSV格式
+            df = pd.DataFrame()
+            if "metrics" in data:
+                metrics = data["metrics"]
+                for key, value in metrics.items():
+                    if isinstance(value, (int, float)):
+                        df[key] = [value]
+                    elif isinstance(value, list):
+                        df[key] = [",".join(map(str, value))]
+                    elif isinstance(value, dict):
+                        for sub_key, sub_value in value.items():
+                            df[f"{key}_{sub_key}"] = [sub_value]
+            df.to_csv(report_path, index=False)
+        elif output_format == "markdown":
+            report_path = os.path.join(self.output_dir, "report.md")
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(self._generate_markdown(data))
         else:
-            raise ValueError(f"不支持的输出格式: {output_format}")
+            raise ValueError("不支持的报告格式")
         
         return report_path
     
