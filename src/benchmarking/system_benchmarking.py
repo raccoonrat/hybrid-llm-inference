@@ -76,7 +76,26 @@ class SystemBenchmarking(BaseBenchmarking):
         super()._init_components()
         self._init_model()
         self._init_scheduler()
+        self._init_profiler()
         
+    def _init_profiler(self) -> None:
+        """初始化性能分析器。"""
+        try:
+            # 获取设备类型和ID
+            device = self.hardware_config.get("device", "cpu")
+            device_id = self.hardware_config.get("device_id", 0)
+            
+            # 根据设备类型初始化分析器
+            if device.lower() == "cuda" and device_id == 0:
+                self.profiler = RTX4050Profiler()
+                logger.info("RTX4050性能分析器初始化成功")
+            else:
+                self.profiler = None
+                logger.info(f"设备 {device}:{device_id} 不支持性能分析，跳过分析器初始化")
+        except Exception as e:
+            logger.error(f"性能分析器初始化失败: {str(e)}")
+            self.profiler = None
+    
     def _init_model(self) -> None:
         """初始化模型。"""
         try:
@@ -250,6 +269,10 @@ class SystemBenchmarking(BaseBenchmarking):
             # 清理调度器
             if hasattr(self, 'scheduler'):
                 del self.scheduler
+            
+            # 清理性能分析器
+            if hasattr(self, 'profiler'):
+                del self.profiler
             
             # 调用父类的清理方法
             super().cleanup()
