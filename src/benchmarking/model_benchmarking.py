@@ -31,15 +31,32 @@ class ModelBenchmarking(BaseBenchmarking):
         self.dataset = None
         self.report_generator = None
         self.config = config
+        
+        # 验证必需字段
+        required_fields = ['model_name', 'batch_size', 'dataset_path', 'model_config']
+        missing_fields = [field for field in required_fields if field not in config]
+        if missing_fields:
+            raise ValueError(f"配置缺少必需字段: {', '.join(missing_fields)}")
+            
         self.model_name = config["model_name"]
         self.batch_size = config["batch_size"]
         self.dataset_path = config["dataset_path"]
+        
+        # 设置默认值
         self.model_config = config["model_config"]
         self.hardware_config = config.get("hardware_config", {})
-        self.output_dir = config["output_dir"]
+        self.output_dir = config.get("output_dir", "output")
         
-        self._load_dataset()
+        # 初始化资源列表
+        self.resources = []
+        
+        # 验证配置
         self._validate_config()
+        
+        # 加载数据集
+        self._load_dataset()
+        
+        # 初始化组件
         self._init_components()
     
     def _load_dataset(self) -> None:
@@ -61,20 +78,35 @@ class ModelBenchmarking(BaseBenchmarking):
         self._validate_dataset()
     
     def _validate_config(self) -> None:
-        """验证模型基准测试配置。
-        
-        Raises:
-            ValueError: 当配置无效时
-        """
-        # 验证模型配置
-        if not self.model_config:
-            raise ValueError("model_config 不能为空")
+        """验证配置是否有效。"""
+        if not isinstance(self.config, dict):
+            raise ValueError("配置必须是字典类型")
             
+        # 检查必需字段
+        required_fields = ['model_config', 'hardware_config']
+        missing_fields = [field for field in required_fields if field not in self.config]
+        if missing_fields:
+            raise ValueError(f"缺少必需的配置字段: {', '.join(missing_fields)}")
+            
+        # 验证模型配置
+        model_config = self.config['model_config']
+        if not isinstance(model_config, dict):
+            raise ValueError("model_config 必须是字典类型")
+            
+        # 验证硬件配置
+        hardware_config = self.config['hardware_config']
+        if not isinstance(hardware_config, dict):
+            raise ValueError("hardware_config 必须是字典类型")
+            
+        # 设置默认值
+        self.config.setdefault('output_dir', 'benchmark_results')
+        self.config.setdefault('model_name', 'model')
+        
         # 验证模型路径
-        if "model_path" not in self.model_config:
+        if "model_path" not in model_config:
             raise ValueError("model_config 必须包含 model_path")
             
-        model_path = self.model_config["model_path"]
+        model_path = model_config["model_path"]
         if not isinstance(model_path, str):
             raise ValueError("model_path 必须是字符串类型")
             
@@ -82,15 +114,11 @@ class ModelBenchmarking(BaseBenchmarking):
         if not os.path.exists(model_path) and not os.environ.get('TEST_MODE'):
             raise ValueError(f"模型路径不存在: {model_path}")
             
-        # 验证硬件配置
-        if not self.hardware_config:
-            raise ValueError("hardware_config 不能为空")
-            
         # 验证设备类型
-        if "device" not in self.hardware_config:
+        if "device" not in hardware_config:
             raise ValueError("hardware_config 必须包含 device")
             
-        device = self.hardware_config["device"]
+        device = hardware_config["device"]
         if device not in ["cpu", "cuda"]:
             raise ValueError("device 必须是 'cpu' 或 'cuda'")
             

@@ -419,6 +419,18 @@ class SystemBenchmarking(BaseBenchmarking):
             logger.error(f"加载数据集失败: {str(e)}")
             raise
 
+    def _check_pytorch_version(self) -> None:
+        """检查 PyTorch 版本是否满足要求。"""
+        import torch
+        version = torch.__version__
+        major, minor = map(int, version.split('.')[:2])
+        
+        if major < 2 or (major == 2 and minor < 0):
+            raise RuntimeError(f"PyTorch 版本 {version} 过低，需要 2.0.0 或更高版本")
+            
+        # 对于 2.6.0 及以上版本，使用 weights_only 参数
+        self._use_weights_only = major > 2 or (major == 2 and minor >= 6)
+
 class Linear(nn.Linear):
     """线性模型类。"""
 

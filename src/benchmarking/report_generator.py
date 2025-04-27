@@ -100,10 +100,17 @@ class ReportGenerator:
             raise ValueError(f"以下指标的值类型无效: {', '.join(invalid_metrics)}")
         
         # 验证必需的指标
-        required_metrics = ['latency', 'throughput']  # 修改为实际需要的必需指标
+        required_metrics = ['latency', 'throughput']  # 要求 latency 和 throughput 都是必需的
         missing_metrics = [metric for metric in required_metrics if metric not in metrics]
         if missing_metrics:
             raise ValueError(f"缺少必需的指标: {', '.join(missing_metrics)}")
+            
+        # 确保 throughput 是正数
+        throughput = metrics['throughput']
+        if isinstance(throughput, (int, float)) and throughput <= 0:
+            raise ValueError("throughput 必须是正数")
+        elif isinstance(throughput, list) and any(x <= 0 for x in throughput):
+            raise ValueError("throughput 列表中的所有值必须是正数")
 
     def _generate_visualizations(self, data: Dict[str, Any], include_tradeoff: bool = True) -> List[str]:
         """生成基准测试结果的可视化图表。
@@ -138,12 +145,29 @@ class ReportGenerator:
                 sns.histplot(latency_data, kde=True)
             elif isinstance(latency_data, (int, float)):
                 plt.bar(['latency'], [latency_data])
-            plt.title('延迟分布')
-            plt.xlabel('延迟 (ms)')
-            plt.ylabel('频率')
+            plt.title('Latency Distribution')
+            plt.xlabel('Latency (ms)')
+            plt.ylabel('Frequency')
             latency_plot = os.path.join(output_dir, 'latency_distribution.png')
             plt.savefig(latency_plot)
             chart_files.append(latency_plot)
+        
+        # 生成吞吐量分布图（如果存在）
+        if 'throughput' in metrics:
+            plt.clf()
+            throughput_data = metrics['throughput']
+            if isinstance(throughput_data, dict) and "distribution" in throughput_data:
+                sns.histplot(throughput_data["distribution"], kde=True)
+            elif isinstance(throughput_data, list):
+                sns.histplot(throughput_data, kde=True)
+            elif isinstance(throughput_data, (int, float)):
+                plt.bar(['throughput'], [throughput_data])
+            plt.title('Throughput Distribution')
+            plt.xlabel('Throughput (requests/second)')
+            plt.ylabel('Frequency')
+            throughput_plot = os.path.join(output_dir, 'throughput_distribution.png')
+            plt.savefig(throughput_plot)
+            chart_files.append(throughput_plot)
         
         # 生成能耗分布图（如果存在）
         if 'energy' in metrics:
@@ -155,16 +179,16 @@ class ReportGenerator:
                 sns.histplot(energy_data, kde=True)
             elif isinstance(energy_data, (int, float)):
                 plt.bar(['energy'], [energy_data])
-            plt.title('能耗分布')
-            plt.xlabel('能耗 (J)')
-            plt.ylabel('频率')
+            plt.title('Energy Distribution')
+            plt.xlabel('Energy (J)')
+            plt.ylabel('Frequency')
             energy_plot = os.path.join(output_dir, 'energy_distribution.png')
             plt.savefig(energy_plot)
             chart_files.append(energy_plot)
         
         # 生成其他指标的分布图
         for key, value in metrics.items():
-            if key not in ['latency', 'energy']:
+            if key not in ['latency', 'energy', 'throughput']:
                 plt.clf()
                 if isinstance(value, dict):
                     if "distribution" in value:
@@ -175,35 +199,60 @@ class ReportGenerator:
                     sns.histplot(value, kde=True)
                 elif isinstance(value, (int, float)):
                     plt.bar([key], [value])
-                plt.title(f'{key} 分布')
-                plt.xlabel(key)
-                plt.ylabel('频率')
+                plt.title(f'{key.capitalize()} Distribution')
+                plt.xlabel(key.capitalize())
+                plt.ylabel('Frequency')
                 plot_path = os.path.join(output_dir, f'{key}_distribution.png')
                 plt.savefig(plot_path)
                 chart_files.append(plot_path)
         
         # 生成权衡图（如果存在相关指标）
-        if include_tradeoff and 'latency' in metrics and 'energy' in metrics:
-            plt.clf()
-            latency_data = metrics['latency']
-            energy_data = metrics['energy']
+        if include_tradeoff:
+            # 延迟-吞吐量权衡
+            if 'latency' in metrics and 'throughput' in metrics:
+                plt.clf()
+                latency_data = metrics['latency']
+                throughput_data = metrics['throughput']
+                
+                if isinstance(latency_data, dict) and isinstance(throughput_data, dict):
+                    if "distribution" in latency_data and "distribution" in throughput_data:
+                        plt.scatter(latency_data["distribution"], throughput_data["distribution"])
+                    elif "value" in latency_data and "value" in throughput_data:
+                        plt.scatter([latency_data["value"]], [throughput_data["value"]])
+                elif isinstance(latency_data, list) and isinstance(throughput_data, list):
+                    plt.scatter(latency_data, throughput_data)
+                elif isinstance(latency_data, (int, float)) and isinstance(throughput_data, (int, float)):
+                    plt.scatter([latency_data], [throughput_data])
+                
+                plt.title('Latency-Throughput Tradeoff')
+                plt.xlabel('Latency (ms)')
+                plt.ylabel('Throughput (requests/second)')
+                tradeoff_plot = os.path.join(output_dir, 'latency_throughput_tradeoff.png')
+                plt.savefig(tradeoff_plot)
+                chart_files.append(tradeoff_plot)
             
-            if isinstance(latency_data, dict) and isinstance(energy_data, dict):
-                if "distribution" in latency_data and "distribution" in energy_data:
-                    plt.scatter(latency_data["distribution"], energy_data["distribution"])
-                elif "value" in latency_data and "value" in energy_data:
-                    plt.scatter([latency_data["value"]], [energy_data["value"]])
-            elif isinstance(latency_data, list) and isinstance(energy_data, list):
-                plt.scatter(latency_data, energy_data)
-            elif isinstance(latency_data, (int, float)) and isinstance(energy_data, (int, float)):
-                plt.scatter([latency_data], [energy_data])
-            
-            plt.title('延迟-能耗权衡')
-            plt.xlabel('延迟 (ms)')
-            plt.ylabel('能耗 (J)')
-            tradeoff_plot = os.path.join(output_dir, 'latency_energy_tradeoff.png')
-            plt.savefig(tradeoff_plot)
-            chart_files.append(tradeoff_plot)
+            # 延迟-能耗权衡
+            if 'latency' in metrics and 'energy' in metrics:
+                plt.clf()
+                latency_data = metrics['latency']
+                energy_data = metrics['energy']
+                
+                if isinstance(latency_data, dict) and isinstance(energy_data, dict):
+                    if "distribution" in latency_data and "distribution" in energy_data:
+                        plt.scatter(latency_data["distribution"], energy_data["distribution"])
+                    elif "value" in latency_data and "value" in energy_data:
+                        plt.scatter([latency_data["value"]], [energy_data["value"]])
+                elif isinstance(latency_data, list) and isinstance(energy_data, list):
+                    plt.scatter(latency_data, energy_data)
+                elif isinstance(latency_data, (int, float)) and isinstance(energy_data, (int, float)):
+                    plt.scatter([latency_data], [energy_data])
+                
+                plt.title('Latency-Energy Tradeoff')
+                plt.xlabel('Latency (ms)')
+                plt.ylabel('Energy (J)')
+                tradeoff_plot = os.path.join(output_dir, 'latency_energy_tradeoff.png')
+                plt.savefig(tradeoff_plot)
+                chart_files.append(tradeoff_plot)
         
         plt.close('all')
         return chart_files
@@ -286,9 +335,9 @@ class ReportGenerator:
         # 生成权衡曲线图
         plt.figure(figsize=(10, 6))
         plt.plot(data["latency"], data["energy"], "o-")
-        plt.xlabel("延迟 (ms)")
-        plt.ylabel("能耗 (J)")
-        plt.title("延迟-能耗权衡曲线")
+        plt.xlabel("Latency (ms)")
+        plt.ylabel("Energy (J)")
+        plt.title("Latency-Energy Tradeoff Curve")
         plt.grid(True)
         plt.savefig(plot_path)
         plt.close()
@@ -297,21 +346,21 @@ class ReportGenerator:
 
     def _generate_markdown(self, results: Dict[str, Any]) -> str:
         """生成 Markdown 格式的报告。"""
-        md_content = ["# 基准测试报告\n"]
+        md_content = ["# Benchmark Test Report\n"]
         
         # 添加时间戳
-        md_content.append(f"生成时间: {results['timestamp']}\n")
+        md_content.append(f"Generated Time: {results['timestamp']}\n")
         
         # 添加指标摘要
         if "metrics" in results:
-            md_content.append("## 性能指标\n")
+            md_content.append("## Performance Metrics\n")
             metrics = results["metrics"]
             for key, value in metrics.items():
                 if isinstance(value, (int, float)):
                     md_content.append(f"- {key}: {value}\n")
                 elif isinstance(value, list):
                     avg_value = sum(value) / len(value) if value else 0
-                    md_content.append(f"- {key} (平均): {avg_value:.2f}\n")
+                    md_content.append(f"- {key} (Average): {avg_value:.2f}\n")
                 elif isinstance(value, dict):
                     md_content.append(f"\n### {key}\n")
                     for sub_key, sub_value in value.items():
@@ -320,13 +369,13 @@ class ReportGenerator:
 
         # 添加图表引用
         if results.get("charts_generated"):
-            md_content.append("\n## 可视化图表\n")
+            md_content.append("\n## Visualizations\n")
             if 'latency' in results['metrics']:
-                md_content.append("![延迟分布](latency_distribution.png)\n")
+                md_content.append("![Latency Distribution](latency_distribution.png)\n")
             if 'energy' in results['metrics']:
-                md_content.append("![能耗分布](energy_distribution.png)\n")
+                md_content.append("![Energy Distribution](energy_distribution.png)\n")
             if 'latency' in results['metrics'] and 'energy' in results['metrics']:
-                md_content.append("![延迟-能耗权衡](latency_energy_tradeoff.png)\n")
+                md_content.append("![Latency-Energy Tradeoff](latency_energy_tradeoff.png)\n")
 
         return "\n".join(md_content)
 
@@ -581,7 +630,7 @@ class ReportGenerator:
         plt.colorbar()
         plt.xticks(range(len(metric_names)), metric_names, rotation=45)
         plt.yticks(range(len(models)), models)
-        plt.title("性能指标热力图")
+        plt.title("Performance Metrics Heatmap")
         plt.tight_layout()
         
         plt.savefig(os.path.join(self.output_dir, "metrics_heatmap.png"))
@@ -618,9 +667,9 @@ class ReportGenerator:
                 plt.plot(throughputs, p(throughputs), "r--", alpha=0.5)
             
             # 设置图表属性
-            plt.title("吞吐量-延迟权衡曲线")
-            plt.xlabel("吞吐量 (requests/second)")
-            plt.ylabel("延迟 (seconds)")
+            plt.title("Throughput-Latency Tradeoff Curve")
+            plt.xlabel("Throughput (requests/second)")
+            plt.ylabel("Latency (seconds)")
             plt.grid(True)
             
             # 保存图表
@@ -640,8 +689,8 @@ class ReportGenerator:
         """
         plt.figure(figsize=(10, 6))
         plt.plot(range(len(metric_values)), metric_values, marker='o')
-        plt.title(f"{metric_name} 时间序列")
-        plt.xlabel("时间点")
+        plt.title(f"{metric_name} Time Series")
+        plt.xlabel("Time Point")
         plt.ylabel(metric_name)
         plt.grid(True)
         plt.savefig(output_path)
@@ -664,38 +713,38 @@ class ReportGenerator:
     def _generate_system_report(self, data, report_path, output_format):
         """生成系统基准测试报告。"""
         with open(report_path, "w", encoding="utf-8") as f:
-            f.write("# 基准测试报告\n\n")
+            f.write("# Benchmark Test Report\n\n")
             
             # 写入基本指标
-            f.write("## 基本指标\n\n")
+            f.write("## Basic Metrics\n\n")
             for key, value in data["metrics"].items():
                 f.write(f"- {key}: {value:.2f}\n")
                 
             # 写入调度指标
-            f.write("\n## 调度指标\n\n")
+            f.write("\n## Scheduling Metrics\n\n")
             for key, value in data["scheduling_metrics"].items():
                 f.write(f"- {key}: {value}\n")
                 
             # 生成权衡曲线
             curve_path = os.path.join(os.path.dirname(report_path), "tradeoff_curve.png")
             self._plot_tradeoff_curve(data, curve_path)
-            f.write(f"\n## 权衡曲线\n\n![权衡曲线]({os.path.basename(curve_path)})\n")
+            f.write(f"\n## Tradeoff Curve\n\n![Tradeoff Curve]({os.path.basename(curve_path)})\n")
 
     def _generate_model_report(self, data, report_path, output_format):
         """生成模型基准测试报告。"""
         with open(report_path, "w", encoding="utf-8") as f:
-            f.write("# 模型基准测试报告\n\n")
+            f.write("# Model Benchmark Test Report\n\n")
             
             for model, metrics in data.items():
                 f.write(f"## {model}\n\n")
                 
                 # 写入基本指标
-                f.write("### 性能指标\n\n")
+                f.write("### Performance Metrics\n\n")
                 for key in ["throughput", "latency", "energy", "runtime"]:
                     f.write(f"- {key}: {metrics[key]:.2f}\n")
                 
                 # 写入汇总指标
-                f.write("\n### 汇总指标\n\n")
+                f.write("\n### Summary Metrics\n\n")
                 for key, value in metrics["summary"].items():
                     f.write(f"- {key}: {value:.2f}\n")
                 
@@ -714,8 +763,8 @@ class ReportGenerator:
             values = [data[model][metric] for model in models]
             
             plt.bar(models, values)
-            plt.title(f"{metric.capitalize()} 对比")
-            plt.xlabel("模型")
+            plt.title(f"{metric.capitalize()} Comparison")
+            plt.xlabel("Model")
             plt.ylabel(metric.capitalize())
             plt.xticks(rotation=45)
             plt.tight_layout()
@@ -765,3 +814,10 @@ class ReportGenerator:
             str: 报告文件路径
         """
         return os.path.join(self.output_dir, f"{report_type}_report.json")
+
+    def cleanup(self) -> None:
+        """清理报告生成器的资源。"""
+        # 清理所有生成的图表文件
+        for file in os.listdir(self.output_dir):
+            if file.endswith(('.png', '.jpg', '.jpeg', '.svg')):
+                os.remove(os.path.join(self.output_dir, file))
