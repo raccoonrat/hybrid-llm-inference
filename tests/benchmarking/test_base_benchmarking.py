@@ -10,14 +10,16 @@ def test_base_benchmarking_config_validation():
         "model_name": "test_model",
         "batch_size": 32
     }
-    with pytest.raises(ValueError, match=r".*dataset_path.*"):
+    with pytest.raises(ValueError, match=r"配置缺少必需字段: model_config"):
         MockBenchmarking(invalid_config)
 
     # 测试无效的批处理大小
     invalid_batch_config = {
         "model_name": "test_model",
         "dataset_path": "/path/to/dataset",
-        "batch_size": -1
+        "batch_size": -1,
+        "model_config": {},
+        "hardware_config": {}
     }
     with pytest.raises(ValueError, match=r".*batch_size.*"):
         MockBenchmarking(invalid_batch_config)
@@ -28,16 +30,8 @@ def test_base_benchmarking_config_validation():
         "dataset_path": "/path/to/dataset",
         "batch_size": 32,
         "num_threads": 4,
-        "device": "cpu",
-        "metrics": ["latency", "energy", "throughput"],
-        "model_config": {
-            "model_type": "mock",
-            "model_path": "mock_path"
-        },
-        "hardware_config": {
-            "device": "cpu",
-            "device_id": 0
-        }
+        "model_config": {},
+        "hardware_config": {}
     }
     benchmarking = MockBenchmarking(valid_config)
     assert benchmarking.config == valid_config

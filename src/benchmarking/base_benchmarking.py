@@ -97,6 +97,15 @@ class BaseBenchmarking(ABC):
         
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
+        # 检查必需字段
+        for field in self.REQUIRED_CONFIG_FIELDS:
+            if field not in self.config:
+                raise ValueError(f"配置缺少必需字段: {field}")
+
+        # 设置默认值
+        self.config['output_dir'] = self.config.get('output_dir', 'output')
+        self.config['model_name'] = self.config.get('model_name', 'default_model')
+
         # 验证 batch_size
         batch_size = self.config.get('batch_size', 1)
         if not isinstance(batch_size, int) or batch_size <= 0:
@@ -116,21 +125,6 @@ class BaseBenchmarking(ABC):
             dataset_path = self.config_manager.get_dataset_path()
             if not os.path.exists(dataset_path) and not os.environ.get('TEST_MODE'):
                 raise ValueError(f"数据集路径不存在: {dataset_path}")
-
-        # 检查必需字段
-        if 'model_config' not in self.config:
-            raise ValueError("配置缺少必需字段: model_config")
-        if not isinstance(self.config['model_config'], dict):
-            raise ValueError("model_config 必须是字典类型")
-
-        if 'hardware_config' not in self.config:
-            raise ValueError("配置缺少必需字段: hardware_config")
-        if not isinstance(self.config['hardware_config'], dict):
-            raise ValueError("hardware_config 必须是字典类型")
-
-        # 设置默认值
-        self.config['output_dir'] = self.config.get('output_dir', 'output')
-        self.config['model_name'] = self.config.get('model_name', 'default_model')
 
         # 验证输出目录
         if not os.path.exists(self.config['output_dir']):
