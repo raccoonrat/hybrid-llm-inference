@@ -15,9 +15,14 @@ logger = get_logger(__name__)
 class HardwareProfiler(ABC):
     """硬件性能分析基类。"""
     
-    def __init__(self):
-        """初始化硬件性能分析器。"""
+    def __init__(self, config: Dict[str, Any]):
+        """初始化硬件性能分析器。
+
+        Args:
+            config: 配置字典，包含硬件相关的配置参数
+        """
         self.logger = logger
+        self.config = config
         self.system_info = self._get_system_info()
         self.metrics = {}
         

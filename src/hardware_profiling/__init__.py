@@ -4,6 +4,7 @@
 from .base_profiler import HardwareProfiler
 from .rtx4050_profiler import RTX4050Profiler
 from .m1_profiler import M1Profiler
+from .a800_profiling import A800Profiler
 
 import os
 import logging
@@ -29,5 +30,7 @@ def get_profiler(device_type: str, config: Dict[str, Any]) -> HardwareProfiler:
         return RTX4050Profiler(config)
     elif device_type == "m1_pro":
         return M1Profiler(config)
+    elif device_type == "a800":
+        return A800Profiler(config)
     else:
         raise ValueError(f"不支持的设备类型: {device_type}")

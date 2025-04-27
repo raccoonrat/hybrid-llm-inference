@@ -139,9 +139,9 @@ class RTX4050Profiler(HardwareProfiler):
 
         # 验证配置
         self._validate_config()
-        
+
         # 调用父类初始化
-        super().__init__()
+        super().__init__(config)
         
         # 初始化分析器
         self._init_profiler()
