@@ -92,8 +92,11 @@ def test_config():
     os.makedirs(output_dir, exist_ok=True)
     
     # 创建模拟模型文件
-    with open(model_path, "w") as f:
-        f.write("mock model data")
+    with open(model_path, "wb") as f:
+        # 创建一个有效的 PyTorch 模型文件
+        model = MockModel(model_path=model_path)
+        state_dict = model.state_dict()
+        torch.save(state_dict, f)
     
     # 创建数据集文件
     dataset_path = os.path.join(temp_dir, "dataset.json")

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 import multiprocessing
 import shutil
+import torch
+import torch.nn as nn
 from .base_benchmarking import BaseBenchmarking
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from src.model_zoo.tinyllama import TinyLlama
@@ -14,11 +16,9 @@ from src.scheduling.token_based_scheduler import TokenBasedScheduler
 from src.scheduling.task_based_scheduler import TaskBasedScheduler
 import time
 import random
-import torch
 from .report_generator import ReportGenerator
 from ..hardware_profiling.base_profiler import HardwareProfiler
 from ..toolbox.logger import get_logger
-import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,6 @@ class SystemBenchmarking(BaseBenchmarking):
                         raise PermissionError(f"没有权限读取模型文件: {model_path}")
                     
                     # 检查 PyTorch 版本
-                    import torch
                     version = torch.__version__
                     major, minor = map(int, version.split('.')[:2])
                     
@@ -440,7 +439,6 @@ class SystemBenchmarking(BaseBenchmarking):
 
     def _check_pytorch_version(self) -> None:
         """检查 PyTorch 版本是否满足要求。"""
-        import torch
         version = torch.__version__
         major, minor = map(int, version.split('.')[:2])
         

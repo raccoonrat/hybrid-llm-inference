@@ -86,9 +86,9 @@ class ModelBenchmarking(BaseBenchmarking):
         required_fields = ["model_config", "hardware_config"]
         for field in required_fields:
             if field not in self.config:
-                raise ValueError(f"缺少必需的配置项: {field}")
+                raise ValueError(f"配置缺少必需字段: {field}")
             if not isinstance(self.config[field], dict):
-                raise ValueError(f"{field}必须是字典类型")
+                raise ValueError(f"{field} 必须是字典类型")
 
         # 设置默认值
         self.config.setdefault("output_dir", "output")
@@ -98,13 +98,13 @@ class ModelBenchmarking(BaseBenchmarking):
         if "dataset_path" not in self.config:
             raise ValueError("缺少数据集路径配置")
         if not os.path.exists(self.config["dataset_path"]):
-            raise ValueError(f"数据集路径不存在: {self.config['dataset_path']}")
+            raise ValueError("数据集路径不存在")
 
         # 验证模型路径
         if "model_path" not in self.config["model_config"]:
             raise ValueError("缺少模型路径配置")
         if not os.path.exists(self.config["model_config"]["model_path"]):
-            raise ValueError(f"模型路径不存在: {self.config['model_config']['model_path']}")
+            raise ValueError("模型路径不存在")
 
         # 验证硬件配置
         if "device" not in self.config["hardware_config"]:
@@ -123,7 +123,7 @@ class ModelBenchmarking(BaseBenchmarking):
             raise ValueError("配置必须包含 dataset 或 dataset_path")
             
         if self.dataset_path and not os.path.exists(self.dataset_path) and not os.environ.get('TEST_MODE'):
-            raise ValueError(f"数据集路径不存在: {self.dataset_path}")
+            raise ValueError("数据集路径不存在")
             
         if self.config.get("dataset") and not isinstance(self.config["dataset"], list):
             raise ValueError("dataset 必须是列表类型")
