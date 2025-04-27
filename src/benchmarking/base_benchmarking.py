@@ -56,7 +56,24 @@ class BaseBenchmarking(ABC):
         Raises:
             ValueError: 当配置无效时
         """
-        # 检查必需字段
+        # 首先验证数据集配置
+        if "dataset" not in config and "dataset_path" not in config:
+            raise ValueError("配置必须包含 dataset 或 dataset_path")
+            
+        if "dataset_path" in config:
+            if not os.path.exists(config["dataset_path"]) and not os.environ.get('TEST_MODE'):
+                raise ValueError(f"数据集路径不存在: {config['dataset_path']}")
+                
+        if "dataset" in config:
+            if not isinstance(config["dataset"], list):
+                raise ValueError("dataset 必须是列表类型")
+            if not config["dataset"]:
+                raise ValueError("数据集不能为空")
+            for item in config["dataset"]:
+                if not isinstance(item, dict):
+                    raise ValueError("数据集中的每个项目必须是字典类型")
+        
+        # 检查其他必需字段
         for field in self.REQUIRED_CONFIG_FIELDS:
             if field not in config:
                 raise ValueError(f"配置缺少必需字段: {field}")
@@ -72,23 +89,6 @@ class BaseBenchmarking(ABC):
         # 验证 hardware_config
         if not isinstance(config["hardware_config"], dict):
             raise ValueError("hardware_config 必须是字典类型")
-            
-        # 验证数据集
-        if "dataset" not in config and "dataset_path" not in config:
-            raise ValueError("配置必须包含 dataset 或 dataset_path")
-            
-        if "dataset" in config:
-            if not isinstance(config["dataset"], list):
-                raise ValueError("dataset 必须是列表类型")
-            if not config["dataset"]:
-                raise ValueError("数据集不能为空")
-            for item in config["dataset"]:
-                if not isinstance(item, dict):
-                    raise ValueError("数据集中的每个项目必须是字典类型")
-        
-        if "dataset_path" in config:
-            if not os.path.exists(config["dataset_path"]):
-                raise ValueError(f"数据集路径不存在: {config['dataset_path']}")
         
         # 设置默认值
         config.setdefault("num_threads", 1)
@@ -97,49 +97,16 @@ class BaseBenchmarking(ABC):
         
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
-        # 检查必需字段
-        if 'model_config' not in self.config:
-            raise ValueError("配置缺少必需字段: model_config")
-        if 'hardware_config' not in self.config:
-            raise ValueError("配置缺少必需字段: hardware_config")
-            
-        # 验证模型配置
-        model_config = self.config['model_config']
-        if not isinstance(model_config, dict):
-            raise ValueError("model_config 必须是字典类型")
-            
-        # 验证硬件配置
-        hardware_config = self.config['hardware_config']
-        if not isinstance(hardware_config, dict):
-            raise ValueError("hardware_config 必须是字典类型")
-            
-        # 设置默认值
-        if 'output_dir' not in self.config:
-            self.config['output_dir'] = os.path.join(os.getcwd(), 'benchmark_results')
-        self.config.setdefault('model_name', 'model')
-        
-        # 验证输出目录
-        output_dir = self.config['output_dir']
-        if not isinstance(output_dir, str):
-            raise ValueError("output_dir 必须是字符串类型")
-        if not output_dir:
-            raise ValueError("output_dir 不能为空")
-            
-        # 创建输出目录
-        os.makedirs(output_dir, exist_ok=True)
-            
-        # 验证批处理大小
-        if 'batch_size' in self.config:
-            batch_size = self.config['batch_size']
-            if not isinstance(batch_size, int):
-                raise ValueError("batch_size 必须是整数类型")
-            if batch_size <= 0:
-                raise ValueError("batch_size 必须是正数")
-        
-        # 如果配置中同时存在dataset和dataset_path，优先使用dataset
+        # 验证 batch_size
+        batch_size = self.config.get('batch_size', 1)
+        if not isinstance(batch_size, int) or batch_size <= 0:
+            raise ValueError(f"batch_size 必须是正整数，当前值为: {batch_size}")
+        self.config['batch_size'] = batch_size
+
+        # 验证数据集配置
         if "dataset" not in self.config and not self.config_manager.get_dataset_path():
             raise ValueError("配置必须包含 dataset 或 dataset_path")
-            
+
         if "dataset" in self.config:
             if not isinstance(self.config["dataset"], list):
                 raise ValueError("dataset 必须是列表类型")
@@ -149,20 +116,29 @@ class BaseBenchmarking(ABC):
             dataset_path = self.config_manager.get_dataset_path()
             if not os.path.exists(dataset_path) and not os.environ.get('TEST_MODE'):
                 raise ValueError(f"数据集路径不存在: {dataset_path}")
-                
-        if not self.config_manager.get_output_dir():
-            raise ValueError("output_dir 不能为空")
-        if not self.hardware_config:
-            raise ValueError("hardware_config 不能为空")
-        if not self.model_config:
-            raise ValueError("model_config 不能为空")
-        
-        # 验证模型配置
-        if "model_path" in self.model_config:
-            model_path = self.model_config["model_path"]
-            if not isinstance(model_path, str):
-                raise ValueError("model_path 必须是字符串类型")
-            # 在测试模式下,允许模型路径不存在
+
+        # 检查必需字段
+        if 'model_config' not in self.config:
+            raise ValueError("配置缺少必需字段: model_config")
+        if not isinstance(self.config['model_config'], dict):
+            raise ValueError("model_config 必须是字典类型")
+
+        if 'hardware_config' not in self.config:
+            raise ValueError("配置缺少必需字段: hardware_config")
+        if not isinstance(self.config['hardware_config'], dict):
+            raise ValueError("hardware_config 必须是字典类型")
+
+        # 设置默认值
+        self.config['output_dir'] = self.config.get('output_dir', 'output')
+        self.config['model_name'] = self.config.get('model_name', 'default_model')
+
+        # 验证输出目录
+        if not os.path.exists(self.config['output_dir']):
+            os.makedirs(self.config['output_dir'])
+
+        # 验证模型路径
+        if 'model_path' in self.config['model_config']:
+            model_path = self.config['model_config']['model_path']
             if not os.path.exists(model_path) and not os.environ.get('TEST_MODE'):
                 raise ValueError(f"模型路径不存在: {model_path}")
     
