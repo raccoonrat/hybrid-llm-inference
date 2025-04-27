@@ -2,12 +2,11 @@
 
 import os
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import multiprocessing
 import shutil
-from toolbox.logger import get_logger
-from toolbox.config_manager import ConfigManager
 from .base_benchmarking import BaseBenchmarking
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from src.model_zoo.tinyllama import TinyLlama
@@ -16,34 +15,38 @@ from src.scheduling.task_based_scheduler import TaskBasedScheduler
 import time
 import random
 import torch
+from .report_generator import ReportGenerator
+from ..hardware_profiling.base_profiler import HardwareProfiler
+from ..toolbox.logger import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 class SystemBenchmarking(BaseBenchmarking):
     """系统基准测试类，用于测试系统整体性能。"""
     
-    def __init__(self, config: Dict[str, Any], dataset: Optional[List[Dict[str, Any]]] = None) -> None:
+    def __init__(self, config: Dict[str, Any]) -> None:
         """初始化系统基准测试。
 
         Args:
-            config: 配置字典
-            dataset: 数据集，可选
+            config: 配置字典，包含以下字段：
+                - dataset_path: 数据集路径
+                - model_config: 模型配置
+                - output_dir: 输出目录
         """
         super().__init__(config)
+        self.dataset_path = config["dataset_path"]
+        self.model_config = config["model_config"]
+        self.output_dir = config["output_dir"]
+        self.dataset = None  # 初始化 dataset 属性
         self.logger = get_logger(__name__)
         self.initialized = False
         self.results = {}
         
+        # 验证配置
+        self._validate_config()
+        
         # 加载数据集
-        if dataset is not None:
-            self.dataset = dataset
-        else:
-            dataset_path = self.config_manager.get_dataset_path()
-            if os.path.exists(dataset_path):
-                with open(dataset_path, 'r', encoding='utf-8') as f:
-                    self.dataset = json.load(f)
-            else:
-                self.dataset = []
+        self._load_dataset()
         
         # 初始化组件
         self._init_components()
@@ -67,17 +70,33 @@ class SystemBenchmarking(BaseBenchmarking):
         if not self.scheduler_config.get("scheduler_type"):
             raise ValueError("调度器配置中必须指定调度器类型")
         
-        # 验证数据集
-        if not self.dataset:
-            logger.warning("数据集为空")
+        # 验证数据集路径
+        if not os.path.exists(self.dataset_path):
+            raise ValueError(f"数据集路径不存在: {self.dataset_path}")
     
     def _init_components(self) -> None:
-        """初始化组件。"""
-        super()._init_components()
+        """初始化组件。
+
+        初始化系统基准测试所需的所有组件，包括：
+        - 模型
+        - 调度器
+        - 性能分析器
+        - 报告生成器
+        """
+        # 初始化模型
         self._init_model()
+        
+        # 初始化调度器
         self._init_scheduler()
+        
+        # 初始化性能分析器
         self._init_profiler()
         
+        # 初始化报告生成器
+        self.report_generator = ReportGenerator(self.output_dir)
+        
+        logger.info("系统基准测试组件初始化完成")
+    
     def _init_profiler(self) -> None:
         """初始化性能分析器。"""
         try:
@@ -285,3 +304,33 @@ class SystemBenchmarking(BaseBenchmarking):
     def run_benchmark(self):
         """运行基准测试的别名方法。"""
         return self.run_benchmarks(self.dataset)
+
+    def _load_dataset(self) -> None:
+        """加载数据集。"""
+        try:
+            # 加载数据集
+            with open(self.dataset_path, 'r', encoding='utf-8') as f:
+                self.dataset = json.load(f)
+            
+            # 验证数据集
+            if self.dataset is None:
+                raise ValueError("数据集不能为 None")
+            
+            if not isinstance(self.dataset, list):
+                raise ValueError("数据集必须是列表类型")
+            
+            if not self.dataset:
+                raise ValueError("数据集不能为空")
+            
+            for item in self.dataset:
+                if not isinstance(item, dict):
+                    raise ValueError("数据集中的每个项目必须是字典类型")
+                if "input" not in item:
+                    raise ValueError("数据集中的每个项目必须包含 input 字段")
+                
+            logger.info(f"成功加载数据集，共 {len(self.dataset)} 条数据")
+        except json.JSONDecodeError:
+            raise ValueError(f"数据集文件格式错误: {self.dataset_path}")
+        except Exception as e:
+            logger.error(f"加载数据集失败: {str(e)}")
+            raise

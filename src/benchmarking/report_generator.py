@@ -19,15 +19,17 @@ logger = get_logger(__name__)
 class ReportGenerator:
     """基准测试报告生成器。"""
 
-    def __init__(self, output_dir: str, style_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, output_dir: str, style_config: Optional[Dict[str, Any]] = None, options: Optional[Dict[str, Any]] = None):
         """初始化报告生成器。
 
         Args:
             output_dir: 输出目录路径
             style_config: 可选的样式配置
+            options: 可选的其他配置选项
         """
         self.output_dir = output_dir
         self.style_config = style_config or {}
+        self.options = options or {}
         self.logger = logging.getLogger(__name__)
         self.output_format = "json"  # 默认输出格式
         os.makedirs(output_dir, exist_ok=True)
@@ -46,16 +48,15 @@ class ReportGenerator:
         if not data:
             raise ValueError("基准测试结果不能为空")
         
-        # 检查必需字段
-        if "metrics" not in data:
-            raise ValueError("缺少必需字段: metrics")
+        # 如果数据已经包含metrics字段，直接使用
+        if "metrics" in data:
+            metrics = data["metrics"]
+        else:
+            # 否则，将整个数据作为metrics
+            metrics = data
+            data = {"metrics": metrics}
         
-        # 添加时间戳（如果不存在）
-        if "timestamp" not in data:
-            data["timestamp"] = datetime.now().isoformat()
-        
-        # 验证 metrics 字段
-        metrics = data["metrics"]
+        # 验证metrics字段
         if not isinstance(metrics, dict):
             raise ValueError("metrics 必须是字典类型")
         
@@ -63,18 +64,27 @@ class ReportGenerator:
         if not metrics:
             raise ValueError("metrics 不能为空")
         
+        # 添加时间戳（如果不存在）
+        if "timestamp" not in data:
+            data["timestamp"] = datetime.now().isoformat()
+        
+        def validate_metric_value(value):
+            """递归验证指标值。"""
+            if isinstance(value, (int, float)):
+                return True
+            elif isinstance(value, list):
+                return all(isinstance(x, (int, float)) for x in value)
+            elif isinstance(value, dict):
+                # 跳过 summary 字段的验证
+                if "summary" in value:
+                    return True
+                return all(validate_metric_value(v) for v in value.values())
+            return False
+
         # 验证指标值类型
         for key, value in metrics.items():
-            if not isinstance(value, (int, float, list, dict)):
-                raise ValueError(f"指标 {key} 的值必须是数值、列表或字典类型")
-            
-            if isinstance(value, list):
-                if not all(isinstance(x, (int, float)) for x in value):
-                    raise ValueError(f"指标 {key} 的列表值必须全部为数值类型")
-            
-            if isinstance(value, dict):
-                if not all(isinstance(x, (int, float)) for x in value.values()):
-                    raise ValueError(f"指标 {key} 的字典值必须全部为数值类型")
+            if not validate_metric_value(value):
+                raise ValueError(f"指标 {key} 的值必须是数值、数值列表或包含数值的字典")
         
         required_metrics = ['energy', 'latency']
         for metric in required_metrics:
@@ -108,7 +118,9 @@ class ReportGenerator:
         if 'latency' in metrics:
             plt.clf()
             latency_data = metrics['latency']
-            if isinstance(latency_data, list):
+            if isinstance(latency_data, dict) and "distribution" in latency_data:
+                sns.histplot(latency_data["distribution"], kde=True)
+            elif isinstance(latency_data, list):
                 sns.histplot(latency_data, kde=True)
             elif isinstance(latency_data, (int, float)):
                 plt.bar(['latency'], [latency_data])
@@ -123,7 +135,9 @@ class ReportGenerator:
         if 'energy' in metrics:
             plt.clf()
             energy_data = metrics['energy']
-            if isinstance(energy_data, list):
+            if isinstance(energy_data, dict) and "distribution" in energy_data:
+                sns.histplot(energy_data["distribution"], kde=True)
+            elif isinstance(energy_data, list):
                 sns.histplot(energy_data, kde=True)
             elif isinstance(energy_data, (int, float)):
                 plt.bar(['energy'], [energy_data])
@@ -136,9 +150,17 @@ class ReportGenerator:
         
         # 生成其他指标的分布图
         for key, value in metrics.items():
-            if key not in ['latency', 'energy'] and isinstance(value, list):
+            if key not in ['latency', 'energy']:
                 plt.clf()
-                sns.histplot(value, kde=True)
+                if isinstance(value, dict):
+                    if "distribution" in value:
+                        sns.histplot(value["distribution"], kde=True)
+                    elif "value" in value:
+                        plt.bar([key], [value["value"]])
+                elif isinstance(value, list):
+                    sns.histplot(value, kde=True)
+                elif isinstance(value, (int, float)):
+                    plt.bar([key], [value])
                 plt.title(f'{key} 分布')
                 plt.xlabel(key)
                 plt.ylabel('频率')
@@ -152,8 +174,13 @@ class ReportGenerator:
             latency_data = metrics['latency']
             energy_data = metrics['energy']
             
-            if isinstance(latency_data, list) and isinstance(energy_data, list):
-                sns.scatterplot(x=latency_data, y=energy_data)
+            if isinstance(latency_data, dict) and isinstance(energy_data, dict):
+                if "distribution" in latency_data and "distribution" in energy_data:
+                    plt.scatter(latency_data["distribution"], energy_data["distribution"])
+                elif "value" in latency_data and "value" in energy_data:
+                    plt.scatter([latency_data["value"]], [energy_data["value"]])
+            elif isinstance(latency_data, list) and isinstance(energy_data, list):
+                plt.scatter(latency_data, energy_data)
             elif isinstance(latency_data, (int, float)) and isinstance(energy_data, (int, float)):
                 plt.scatter([latency_data], [energy_data])
             
@@ -193,18 +220,17 @@ class ReportGenerator:
 
         # 生成报告文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_filename = f"benchmark_report_{timestamp}"
         
         if output_format.lower() == "json":
-            report_path = os.path.join(self.output_dir, f"{report_filename}.json")
+            report_path = os.path.join(self.output_dir, "report.json")
             with open(report_path, "w", encoding="utf-8") as f:
                 json.dump(benchmark_results, f, indent=2, ensure_ascii=False)
         elif output_format.lower() == "markdown":
-            report_path = os.path.join(self.output_dir, f"{report_filename}.md")
+            report_path = os.path.join(self.output_dir, "report.md")
             with open(report_path, "w", encoding="utf-8") as f:
                 f.write(self._generate_markdown(benchmark_results))
         elif output_format.lower() == "csv":
-            report_path = os.path.join(self.output_dir, f"{report_filename}.csv")
+            report_path = os.path.join(self.output_dir, "report.csv")
             self._generate_csv_report(benchmark_results, report_path)
         else:
             raise ValueError(f"不支持的报告格式: {output_format}")

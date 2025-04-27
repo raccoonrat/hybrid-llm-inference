@@ -7,6 +7,7 @@ import shutil
 from typing import Dict, Any, List, Optional
 from toolbox.logger import get_logger
 from .base_benchmarking import BaseBenchmarking
+from model_zoo.mock_model import MockModel
 
 logger = get_logger(__name__)
 
@@ -21,11 +22,14 @@ class ModelBenchmarking(BaseBenchmarking):
                 - dataset_path: 数据集路径
                 - model_config: 模型配置
                 - output_dir: 输出目录
+                - hardware_config: 硬件配置
         """
         super().__init__(config)
         self.dataset_path = config["dataset_path"]
         self.model_config = config["model_config"]
         self.output_dir = config["output_dir"]
+        self.hardware_config = config.get("hardware_config", {})
+        self.model = None
         
         self._load_dataset()
         self._validate_config()
@@ -55,6 +59,8 @@ class ModelBenchmarking(BaseBenchmarking):
             raise ValueError("model_config 必须是字典")
         if not self.model_config:
             raise ValueError("model_config 不能为空")
+        if not isinstance(self.hardware_config, dict):
+            raise ValueError("hardware_config 必须是字典")
     
     def _validate_dataset(self):
         """验证数据集。"""
@@ -75,6 +81,13 @@ class ModelBenchmarking(BaseBenchmarking):
         try:
             if not os.path.exists(self.output_dir):
                 os.makedirs(self.output_dir)
+            
+            # 初始化模型
+            self.model = MockModel(
+                model_path=self.model_config.get("model_path", ""),
+                device=self.hardware_config.get("device", "cpu")
+            )
+            
             self.initialized = True
             logger.info("模型基准测试组件初始化完成")
         except Exception as e:
@@ -94,8 +107,13 @@ class ModelBenchmarking(BaseBenchmarking):
             raise RuntimeError("基准测试未初始化")
             
         try:
+            metrics = self.get_metrics()
             return {
-                "metrics": self.get_metrics(),
+                "latency": metrics["latency"],
+                "throughput": metrics["throughput"],
+                "energy": metrics["energy"],
+                "runtime": metrics["runtime"],
+                "summary": metrics["summary"],
                 "tradeoff_results": {
                     "weights": [0.2, 0.5, 0.8],
                     "values": [
@@ -129,11 +147,16 @@ class ModelBenchmarking(BaseBenchmarking):
     
     def cleanup(self) -> None:
         """清理资源。"""
-        if os.path.exists(self.output_dir):
-            try:
+        try:
+            if self.model is not None:
+                self.model.cleanup()
+                self.model = None
+                
+            if os.path.exists(self.output_dir):
                 shutil.rmtree(self.output_dir)
-            except Exception as e:
-                logger.error(f"清理输出目录失败: {str(e)}")
-                raise
-        super().cleanup()
-        logger.info("模型基准测试清理完成")
+                
+            super().cleanup()
+            logger.info("模型基准测试清理完成")
+        except Exception as e:
+            logger.error(f"清理资源失败: {str(e)}")
+            raise

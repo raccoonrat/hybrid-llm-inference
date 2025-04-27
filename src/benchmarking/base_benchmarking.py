@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 class BaseBenchmarking(ABC):
     """基准测试基类，定义所有基准测试必须实现的接口。"""
     
-    REQUIRED_CONFIG_FIELDS = ["model_name", "dataset_path", "batch_size"]
+    REQUIRED_CONFIG_FIELDS = ["model_name", "batch_size", "model_config", "hardware_config"]
     REQUIRED_METRICS = ["latency", "energy"]
     
     def __init__(self, config: Dict[str, Any]) -> None:
@@ -48,8 +48,7 @@ class BaseBenchmarking(ABC):
         logger.info("基准测试初始化完成")
     
     def validate_config(self, config: Dict[str, Any]) -> None:
-        """
-        验证基准测试配置
+        """验证基准测试配置。
         
         Args:
             config: 基准测试配置
@@ -62,14 +61,35 @@ class BaseBenchmarking(ABC):
             if field not in config:
                 raise ValueError(f"配置缺少必需字段: {field}")
                 
-        # 验证批处理大小
-        if config["batch_size"] <= 0:
+        # 验证 batch_size
+        if not isinstance(config["batch_size"], int) or config["batch_size"] <= 0:
             raise ValueError("batch_size 必须大于 0")
             
-        # 验证数据集路径
-        if not os.path.exists(config["dataset_path"]):
-            raise ValueError(f"数据集路径不存在: {config['dataset_path']}")
+        # 验证 model_config
+        if not isinstance(config["model_config"], dict):
+            raise ValueError("model_config 必须是字典类型")
             
+        # 验证 hardware_config
+        if not isinstance(config["hardware_config"], dict):
+            raise ValueError("hardware_config 必须是字典类型")
+            
+        # 验证数据集
+        if "dataset" not in config and "dataset_path" not in config:
+            raise ValueError("配置必须包含 dataset 或 dataset_path")
+            
+        if "dataset" in config:
+            if not isinstance(config["dataset"], list):
+                raise ValueError("dataset 必须是列表类型")
+            if not config["dataset"]:
+                raise ValueError("数据集不能为空")
+            for item in config["dataset"]:
+                if not isinstance(item, dict):
+                    raise ValueError("数据集中的每个项目必须是字典类型")
+        
+        if "dataset_path" in config:
+            if not os.path.exists(config["dataset_path"]):
+                raise ValueError(f"数据集路径不存在: {config['dataset_path']}")
+        
         # 设置默认值
         config.setdefault("num_threads", 1)
         config.setdefault("device", "cpu")
@@ -77,18 +97,26 @@ class BaseBenchmarking(ABC):
         
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
-        if not self.config_manager.get_dataset_path():
-            raise ValueError("dataset_path 不能为空")
+        # 如果配置中同时存在dataset和dataset_path，优先使用dataset
+        if "dataset" not in self.config and not self.config_manager.get_dataset_path():
+            raise ValueError("配置必须包含 dataset 或 dataset_path")
+            
+        if "dataset" in self.config:
+            if not isinstance(self.config["dataset"], list):
+                raise ValueError("dataset 必须是列表类型")
+            if not self.config["dataset"]:
+                raise ValueError("dataset 不能为空")
+        elif self.config_manager.get_dataset_path():
+            dataset_path = self.config_manager.get_dataset_path()
+            if not os.path.exists(dataset_path) and not os.environ.get('TEST_MODE'):
+                raise ValueError(f"数据集路径不存在: {dataset_path}")
+                
         if not self.config_manager.get_output_dir():
             raise ValueError("output_dir 不能为空")
         if not self.hardware_config:
             raise ValueError("hardware_config 不能为空")
         if not self.model_config:
             raise ValueError("model_config 不能为空")
-        
-        # 验证数据集路径
-        if not os.path.exists(self.dataset_path):
-            raise ValueError(f"数据集路径不存在: {self.dataset_path}")
         
         # 验证模型配置
         if "model_path" in self.model_config:

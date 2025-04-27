@@ -59,7 +59,7 @@ class ConfigManager:
                 if not isinstance(device, str):
                     raise ValueError("device 必须是字符串类型")
                 if device not in ["cpu", "cuda", "mps"]:
-                    raise ValueError("不支持的设备类型")
+                    raise ValueError(f"不支持的设备类型: {device}")
 
         # 验证输出目录
         if "output_dir" in self.config:
