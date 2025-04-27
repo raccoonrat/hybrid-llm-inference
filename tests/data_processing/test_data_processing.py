@@ -23,9 +23,21 @@ def model_path(tmp_path):
 def mock_data():
     """创建模拟数据。"""
     return [
-        {"prompt": "Hello, how are you?", "response": "I'm fine, thank you."},
-        {"prompt": "What is your name?", "response": "My name is AI."},
-        {"prompt": "Tell me a joke.", "response": "Why did the chicken cross the road?"}
+        {
+            "instruction": "Hello, how are you?",
+            "input": "",
+            "output": "I'm fine, thank you."
+        },
+        {
+            "instruction": "What is your name?",
+            "input": "",
+            "output": "My name is AI."
+        },
+        {
+            "instruction": "Tell me a joke.",
+            "input": "",
+            "output": "Why did the chicken cross the road?"
+        }
     ]
 
 @pytest.fixture

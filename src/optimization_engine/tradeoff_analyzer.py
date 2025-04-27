@@ -23,7 +23,7 @@ class TradeoffAnalyzer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logger = get_logger(__name__)
-        self.models = {name: get_model(name, cfg.get("mode", "local"), cfg) 
+        self.models = {name: get_model(name, cfg.get("model_path", "")) 
                       for name, cfg in model_config["models"].items()}
 
     def analyze(self, model_name="llama3"):

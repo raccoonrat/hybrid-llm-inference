@@ -5,7 +5,8 @@ from pathlib import Path
 from toolbox.logger import get_logger
 from .cost_function import CostFunction
 from model_zoo import get_model
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
+import pandas as pd
 
 logger = get_logger(__name__)
 
@@ -49,18 +50,47 @@ class ThresholdOptimizer:
         if not isinstance(self.step_size, (int, float)) or self.step_size <= 0:
             raise ValueError("step_size 必须是正数")
     
+    def _validate_task(self, task: Dict[str, Any]) -> Tuple[int, int]:
+        """验证任务数据并提取令牌数。
+
+        Args:
+            task: 任务数据字典
+
+        Returns:
+            输入令牌数和输出令牌数的元组
+        """
+        if not isinstance(task, dict):
+            raise ValueError("任务数据必须是字典类型")
+            
+        # 尝试不同的键名
+        input_tokens = task.get("input_tokens", 
+                              task.get("input_length",
+                              task.get("prompt_tokens", 0)))
+        output_tokens = task.get("output_tokens",
+                               task.get("output_length",
+                               task.get("completion_tokens", 0)))
+                               
+        if isinstance(input_tokens, str):
+            input_tokens = len(input_tokens.split())
+        if isinstance(output_tokens, str):
+            output_tokens = len(output_tokens.split())
+            
+        return int(input_tokens), int(output_tokens)
+    
     def optimize(self, tasks: List[Dict[str, Any]]) -> float:
         """优化阈值。
 
         Args:
-            tasks: 任务列表，每个任务包含以下字段：
-                - input_tokens: 输入令牌数
-                - output_tokens: 输出令牌数
+            tasks: 任务列表，每个任务应包含输入和输出令牌信息
 
         Returns:
             最优阈值
         """
         try:
+            if isinstance(tasks, pd.DataFrame) and tasks.empty:
+                logger.warning("任务列表为空")
+                return self.min_threshold
+                
             best_threshold = self.min_threshold
             best_cost = float('inf')
             
@@ -69,17 +99,26 @@ class ThresholdOptimizer:
                 total_cost = 0.0
                 
                 # 计算每个任务的成本
-                for task in tasks:
-                    input_tokens = task["input_tokens"]
-                    output_tokens = task["output_tokens"]
-                    
-                    # 根据阈值选择模型
-                    if input_tokens + output_tokens <= threshold:
-                        cost = self.cost_function.calculate(input_tokens, output_tokens)
-                    else:
-                        cost = self.cost_function.calculate(input_tokens, output_tokens) * 1.5
-                    
-                    total_cost += cost
+                for _, task in tasks.iterrows():
+                    try:
+                        # 将任务数据转换为字典格式
+                        task_dict = {
+                            "input_tokens": len(task.get("instruction", "").split()),
+                            "output_tokens": len(task.get("output", "").split())
+                        }
+                        
+                        input_tokens, output_tokens = self._validate_task(task_dict)
+                        
+                        # 根据阈值选择模型
+                        if input_tokens + output_tokens <= threshold:
+                            cost = self.cost_function.calculate(input_tokens, output_tokens)
+                        else:
+                            cost = self.cost_function.calculate(input_tokens, output_tokens) * 1.5
+                        
+                        total_cost += cost
+                    except Exception as e:
+                        logger.warning(f"处理任务时出错，跳过该任务: {str(e)}")
+                        continue
                 
                 # 更新最优阈值
                 if total_cost < best_cost:

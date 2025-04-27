@@ -148,69 +148,47 @@ class SystemBenchmarking(BaseBenchmarking):
     def _init_model(self) -> None:
         """初始化模型。"""
         try:
-            # 获取模型路径
-            model_path = self.model_config.get("model_path")
+            model_path = self.config.get("model_path")
             if not model_path:
-                raise ValueError("model_config 必须包含 model_path")
+                raise ValueError("模型路径未指定")
             
-            # 加载模型状态
-            try:
-                state_dict = torch.load(model_path, weights_only=False)
-                self.logger.info("模型状态加载成功")
-            except Exception as e:
-                self.logger.error(f"加载模型状态失败: {str(e)}")
-                raise
+            # 检查测试模式
+            if os.getenv("TEST_MODE") == "1":
+                logger.info("测试模式：跳过模型加载")
+                return
             
-            # 创建模型实例
-            model_type = self.model_config.get("model_type", "test_model")
-            if model_type == "test_model":
-                # 在测试模式下使用 MockModel
-                from src.model_zoo.mock_model import MockModel
-                self.model = MockModel(model_path=model_path)
-            elif model_type == "mock":
-                from src.model_zoo.mock_model import MockModel
-                self.model = MockModel(model_path=model_path)
-            else:
-                raise ValueError(f"不支持的模型类型: {model_type}")
+            # 验证模型路径
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"模型路径不存在: {model_path}")
             
-            # 在非测试模式下加载模型状态
-            if os.getenv('TEST_MODE') != '1':
+            if not os.access(model_path, os.R_OK):
+                raise PermissionError(f"没有读取模型路径的权限: {model_path}")
+            
+            # 检查是否存在safetensors文件
+            safetensors_path = os.path.join(model_path, "model.safetensors")
+            if os.path.exists(safetensors_path):
+                from safetensors.torch import load_file
                 try:
-                    if not os.path.exists(model_path):
-                        raise FileNotFoundError(f"模型文件不存在: {model_path}")
-                    
-                    if not os.access(model_path, os.R_OK):
-                        raise PermissionError(f"没有权限读取模型文件: {model_path}")
-                    
-                    # 检查 PyTorch 版本
-                    version = torch.__version__
-                    major, minor = map(int, version.split('.')[:2])
-                    
-                    # 对于 PyTorch 2.6 及以上版本，使用 weights_only 参数
-                    if major > 2 or (major == 2 and minor >= 6):
-                        state_dict = torch.load(model_path, weights_only=True)
-                    else:
-                        state_dict = torch.load(model_path)
-                        
-                    self.model.load_state_dict(state_dict)
-                except PermissionError as e:
-                    logger.warning(f"加载模型状态时出现权限问题: {str(e)}")
-                    # 在测试模式下继续执行
-                    if os.getenv('TEST_MODE') == '1':
-                        logger.info("测试模式：跳过模型状态加载")
-                    else:
-                        raise
+                    state_dict = load_file(safetensors_path)
+                    logger.info(f"成功加载模型状态(safetensors): {safetensors_path}")
                 except Exception as e:
-                    logger.error(f"加载模型状态失败: {str(e)}")
+                    logger.error(f"加载safetensors文件失败: {e}")
+                    raise
+            else:
+                # 如果没有safetensors文件，尝试加载PyTorch模型
+                try:
+                    state_dict = torch.load(model_path, weights_only=False)
+                    logger.info(f"成功加载模型状态(PyTorch): {model_path}")
+                except Exception as e:
+                    logger.error(f"加载PyTorch模型失败: {e}")
                     raise
             
-            # 设置设备和模式
-            self.model.to(self.hardware_config["device"])
-            self.model.eval()
+            # 初始化模型
+            self.model = self._create_model(state_dict)
+            logger.info("模型初始化完成")
             
-            self.logger.info("模型初始化成功")
         except Exception as e:
-            self.logger.error(f"模型初始化失败: {str(e)}")
+            logger.error(f"模型初始化失败: {e}")
             raise
     
     def _init_scheduler(self) -> None:

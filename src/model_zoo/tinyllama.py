@@ -18,22 +18,16 @@ class TinyLlama(BaseModel):
 
         Args:
             config: 配置字典，包含：
-                - model_config: 模型配置
-                    - model_path: 模型路径
-                    - device: 运行设备 (cpu/cuda)
-                    - dtype: 数据类型 (float32/float16/bfloat16)
-                    - max_memory: 最大显存使用量
+                - model_path: 模型路径
+                - device: 运行设备 (cpu/cuda)
+                - dtype: 数据类型 (float32/float16/bfloat16)
+                - max_memory: 最大显存使用量
         """
-        # 初始化配置管理器
-        self.config_manager = ConfigManager(config)
-        model_config = self.config_manager.get_model_config()
-        
         # 调用父类构造函数
-        super().__init__(model_path=model_config.get("model_path"), 
-                        device=model_config.get("device", "cuda"))
+        super().__init__(config)
         
-        self.dtype = model_config.get("dtype", "float32")
-        self.max_memory = model_config.get("max_memory", None)
+        self.dtype = config.get("dtype", "float32")
+        self.max_memory = config.get("max_memory", None)
         
         # 验证配置
         self._validate_base_config()
@@ -45,14 +39,12 @@ class TinyLlama(BaseModel):
     
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
-        model_config = self.config_manager.get_model_config()
-        
         # 验证模型路径
-        if not model_config.get("model_path"):
+        if not self.config.get("model_path"):
             raise ValueError("模型路径不能为空")
         
         # 验证设备
-        if model_config.get("device") not in ["cpu", "cuda"]:
+        if self.config.get("device") not in ["cpu", "cuda"]:
             raise ValueError("设备必须是 'cpu' 或 'cuda'")
             
         # 验证数据类型
@@ -61,22 +53,18 @@ class TinyLlama(BaseModel):
     
     def _validate_config(self) -> None:
         """验证配置。"""
-        model_config = self.config_manager.get_model_config()
-        
         # 验证数据类型
         valid_dtypes = ["float32", "float16", "bfloat16"]
         if self.dtype not in valid_dtypes:
             raise ValueError(f"不支持的数据类型: {self.dtype}，支持的类型: {valid_dtypes}")
         
         # 验证设备
-        if model_config.get("device") not in ["cpu", "cuda"]:
+        if self.config.get("device") not in ["cpu", "cuda"]:
             raise ValueError("设备必须是 'cpu' 或 'cuda'")
     
     def _init_model(self) -> None:
         """初始化模型。"""
         try:
-            model_config = self.config_manager.get_model_config()
-            
             # 设置数据类型
             dtype_map = {
                 "float32": torch.float32,
@@ -87,16 +75,16 @@ class TinyLlama(BaseModel):
             
             # 加载模型
             self.model = AutoModelForCausalLM.from_pretrained(
-                model_config["model_path"],
-                device_map=model_config.get("device", "cuda"),
+                self.config["model_path"],
+                device_map=self.config.get("device", "cuda"),
                 torch_dtype=torch_dtype,
                 max_memory=self.max_memory
             )
             
             # 加载分词器
-            self.tokenizer = AutoTokenizer.from_pretrained(model_config["model_path"])
+            self.tokenizer = AutoTokenizer.from_pretrained(self.config["model_path"])
             
-            logger.info(f"模型加载完成，设备: {model_config.get('device', 'cuda')}, 数据类型: {self.dtype}")
+            logger.info(f"模型加载完成，设备: {self.config.get('device', 'cuda')}, 数据类型: {self.dtype}")
         except Exception as e:
             logger.error(f"模型初始化失败: {e}")
             raise
@@ -117,7 +105,7 @@ class TinyLlama(BaseModel):
         try:
             # 编码输入
             inputs = self.tokenizer(input_text, return_tensors="pt")
-            inputs = inputs.to(self.config_manager.get_model_config().get("device", "cuda"))
+            inputs = inputs.to(self.config.get("device", "cuda"))
             
             # 生成输出
             with torch.no_grad():

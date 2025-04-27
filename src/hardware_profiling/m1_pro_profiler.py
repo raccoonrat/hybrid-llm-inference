@@ -61,7 +61,7 @@ class M1ProProfiler(HardwareProfiler):
         
         Args:
             config: 配置参数
-                - device_id: GPU 设备 ID
+                - type: 设备类型（cpu_gpu）
                 - idle_power: 空闲功耗（可选，默认 10W）
                 - max_power: 最大功耗（可选，默认 115W）
             skip_nvml: 是否跳过NVML初始化
@@ -70,9 +70,14 @@ class M1ProProfiler(HardwareProfiler):
         self.logger = logging.getLogger(__name__)
         self.logger.info("Logger initialized for %s", __name__)
         
+        # 验证设备类型
+        device_type = config.get('type')
+        if device_type != 'cpu_gpu':
+            raise ValueError(f"M1 Pro 设备类型必须为 cpu_gpu，当前为: {device_type}")
+        
         # 设置默认配置
         self.config = {
-            'device_id': 0,
+            'type': 'cpu_gpu',
             'idle_power': 10.0,  # 默认空闲功耗
             'max_power': 115.0,  # 默认最大功耗
             'sample_interval': 0.1,  # 采样间隔（秒）

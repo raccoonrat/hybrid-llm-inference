@@ -4,6 +4,7 @@ import os
 from typing import Dict, Any, List, Optional
 from toolbox.logger import get_logger
 from src.model_zoo.tinyllama import TinyLlama
+from src.model_zoo.mistral import LocalMistral
 from src.scheduling.token_based_scheduler import TokenBasedScheduler
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 
@@ -52,10 +53,41 @@ class HybridInference:
         """初始化组件。"""
         # 初始化模型
         for model_config in self.config["models"]:
-            if model_config["name"].lower() == "tinyllama":
-                model = TinyLlama(model_config["model_config"])
+            model_name = model_config["name"].lower()
+            model_cfg = model_config.get("model_config", {})
+            
+            # 验证模型路径
+            model_path = model_cfg.get("model_path")
+            if not model_path:
+                raise ValueError(f"模型 {model_name} 需要指定 model_path")
+            
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"模型路径不存在: {model_path}")
+            
+            if not os.access(model_path, os.R_OK):
+                raise PermissionError(f"没有读取模型路径的权限: {model_path}")
+            
+            if model_name == "tinyllama":
+                model = TinyLlama({
+                    "model_path": model_path,
+                    "device": model_cfg.get("device", "cuda"),
+                    "mode": model_cfg.get("mode", "local"),
+                    "dtype": model_cfg.get("dtype", "float32"),
+                    "max_memory": model_cfg.get("max_memory"),
+                    "batch_size": model_cfg.get("batch_size", 1)
+                })
+            elif "mistral" in model_name:
+                model = LocalMistral({
+                    "model_name": model_name,
+                    "model_path": model_path,
+                    "mode": model_cfg.get("mode", "local"),
+                    "batch_size": model_cfg.get("batch_size", 1),
+                    "max_length": model_cfg.get("max_length", 512)
+                })
             else:
-                raise ValueError(f"不支持的模型: {model_config['name']}")
+                raise ValueError(f"不支持的模型: {model_name}")
+                
+            logger.info(f"成功初始化模型 {model_name}，路径: {model_path}")
             self.models.append(model)
         
         # 初始化调度器

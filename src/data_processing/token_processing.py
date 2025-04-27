@@ -54,6 +54,12 @@ class TokenProcessing:
         if isinstance(texts, pd.Series):
             texts = texts.tolist()
             
+        if isinstance(texts, pd.DataFrame):
+            if texts.empty:
+                self.logger.warning("输入数据为空")
+                return pd.DataFrame(columns=["input_tokens", "decoded_text"])
+            texts = texts.values.tolist()
+            
         if not texts:
             self.logger.warning("输入数据为空")
             return pd.DataFrame(columns=["input_tokens", "decoded_text"])

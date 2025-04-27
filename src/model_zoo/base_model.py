@@ -16,35 +16,38 @@ logger = get_logger(__name__)
 class BaseModel(ABC):
     """基础模型类，提供通用的模型接口。"""
     
-    def __init__(self, model_path: str, device: str = "cuda"):
+    def __init__(self, config: Dict[str, Any]):
         """初始化基础模型。
         
         Args:
-            model_path: 模型路径
-            device: 设备类型，可选 "cuda" 或 "cpu"
+            config: 配置字典，包含：
+                - model_path: 模型路径
+                - device: 设备类型，可选 "cuda" 或 "cpu"
+                - 其他特定模型的配置
         """
         self.logger = logging.getLogger(__name__)
-        self.model_path = model_path
-        self.device = device
         
-        if not model_path or not isinstance(model_path, str):
-            raise ValueError("模型路径必须是非空字符串")
+        if isinstance(config, str):
+            self.config = {"model_path": config}
+        else:
+            self.config = config
             
-        if os.getenv('TEST_MODE') == '1':
+        self.device = self.config.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+        self.model_path = self.config.get("model_path", "")
+        
+        # 检查是否在测试模式下
+        if os.environ.get("TEST_MODE", "").lower() == "true":
             self.logger.info("测试模式：跳过模型加载")
-            self.model = None
-            self.tokenizer = None
             return
             
-        try:
-            self.model = AutoModelForCausalLM.from_pretrained(model_path).to(device)
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        except Exception as e:
-            raise RuntimeError(f"加载模型失败：{str(e)}")
-                
-    def load_model(self):
-        """加载模型。"""
-        raise NotImplementedError
+        if not self.model_path:
+            raise ValueError("model_path 不能为空")
+            
+        self._load_model()
+        
+    def _load_model(self) -> None:
+        """加载模型。子类需要实现此方法。"""
+        raise NotImplementedError("子类必须实现 _load_model 方法")
     
     def get_token_count(self, text: str) -> int:
         """获取文本的token数量。
@@ -55,44 +58,27 @@ class BaseModel(ABC):
         Returns:
             int: token数量
         """
-        if os.getenv('TEST_MODE') == '1':
+        if self.model_path:
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+                tokens = tokenizer.encode(text)
+                return len(tokens)
+            except Exception as e:
+                self.logger.error(f"计算token数量失败: {str(e)}")
+                return 0
+        else:
             return len(text.split())
-            
-        try:
-            tokens = self.tokenizer.encode(text)
-            return len(tokens)
-        except Exception as e:
-            self.logger.error(f"计算token数量失败: {str(e)}")
-            return 0
     
-    def infer(self, prompt: str, max_tokens: int = 100) -> str:
-        """执行推理。
-        
+    def infer(self, input_text: str) -> str:
+        """执行推理。子类需要实现此方法。
+
         Args:
-            prompt: 输入提示
-            max_tokens: 最大生成token数
-            
+            input_text: 输入文本
+
         Returns:
-            生成的文本
+            str: 输出文本
         """
-        if self.model is None:
-            raise RuntimeError("模型未加载")
-        
-        start_time = time.time()
-        try:
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=max_tokens,
-                do_sample=True,
-                temperature=0.7
-            )
-            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            logger.info(f"推理完成，耗时: {time.time() - start_time:.2f}秒")
-            return response
-        except Exception as e:
-            logger.error(f"推理失败: {str(e)}")
-            raise
+        raise NotImplementedError("子类必须实现 infer 方法")
     
     @abstractmethod
     def _validate_base_config(self) -> None:
@@ -128,12 +114,8 @@ class BaseModel(ABC):
         """
         pass
     
-    @abstractmethod
     def cleanup(self) -> None:
-        """清理资源。
-
-        由子类实现，用于清理特定模型的资源。
-        """
+        """清理资源。子类可以重写此方法。"""
         pass
 
     def _do_inference(self, input_text: str) -> str:
@@ -175,9 +157,8 @@ class BaseModel(ABC):
         
     def initialize(self):
         """初始化模型。"""
-        if self.model is None:
-            self.model = self.load_model()
-            self.tokenizer = self.tokenizer
+        if self.model_path:
+            self._load_model()
             logger.info("模型初始化完成")
         else:
             logger.info("模型已初始化")
@@ -192,17 +173,19 @@ class BaseModel(ABC):
         Returns:
             str: 生成的文本
         """
-        if os.getenv('TEST_MODE') == '1':
+        if self.model_path:
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+                inputs = tokenizer(prompt, return_tensors="pt").to(self.device)
+                model = AutoModelForCausalLM.from_pretrained(self.model_path).to(self.device)
+                outputs = model.generate(
+                    **inputs,
+                    max_length=max_length,
+                    num_return_sequences=1
+                )
+                return tokenizer.decode(outputs[0], skip_special_tokens=True)
+            except Exception as e:
+                self.logger.error(f"生成文本失败: {str(e)}")
+                return ""
+        else:
             return "This is a mock response."
-            
-        try:
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-            outputs = self.model.generate(
-                **inputs,
-                max_length=max_length,
-                num_return_sequences=1
-            )
-            return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        except Exception as e:
-            self.logger.error(f"生成文本失败: {str(e)}")
-            return ""
