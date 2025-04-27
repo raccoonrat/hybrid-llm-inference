@@ -97,6 +97,45 @@ class BaseBenchmarking(ABC):
         
     def _validate_base_config(self) -> None:
         """验证基础配置。"""
+        # 检查必需字段
+        if 'model_config' not in self.config:
+            raise ValueError("配置缺少必需字段: model_config")
+        if 'hardware_config' not in self.config:
+            raise ValueError("配置缺少必需字段: hardware_config")
+            
+        # 验证模型配置
+        model_config = self.config['model_config']
+        if not isinstance(model_config, dict):
+            raise ValueError("model_config 必须是字典类型")
+            
+        # 验证硬件配置
+        hardware_config = self.config['hardware_config']
+        if not isinstance(hardware_config, dict):
+            raise ValueError("hardware_config 必须是字典类型")
+            
+        # 设置默认值
+        if 'output_dir' not in self.config:
+            self.config['output_dir'] = os.path.join(os.getcwd(), 'benchmark_results')
+        self.config.setdefault('model_name', 'model')
+        
+        # 验证输出目录
+        output_dir = self.config['output_dir']
+        if not isinstance(output_dir, str):
+            raise ValueError("output_dir 必须是字符串类型")
+        if not output_dir:
+            raise ValueError("output_dir 不能为空")
+            
+        # 创建输出目录
+        os.makedirs(output_dir, exist_ok=True)
+            
+        # 验证批处理大小
+        if 'batch_size' in self.config:
+            batch_size = self.config['batch_size']
+            if not isinstance(batch_size, int):
+                raise ValueError("batch_size 必须是整数类型")
+            if batch_size <= 0:
+                raise ValueError("batch_size 必须是正数")
+        
         # 如果配置中同时存在dataset和dataset_path，优先使用dataset
         if "dataset" not in self.config and not self.config_manager.get_dataset_path():
             raise ValueError("配置必须包含 dataset 或 dataset_path")

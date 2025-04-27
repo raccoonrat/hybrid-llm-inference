@@ -40,77 +40,47 @@ class ReportGenerator:
         """验证基准测试数据。
 
         Args:
-            data: 基准测试数据
+            data: 基准测试数据字典
 
         Raises:
-            ValueError: 当数据无效时抛出
-            TypeError: 当数据类型错误时抛出
+            ValueError: 当数据无效时
         """
-        # 验证数据类型
-        if not isinstance(data, dict):
-            raise TypeError("基准测试数据必须是字典类型")
-            
         if not data:
             raise ValueError("基准测试结果不能为空")
-        
-        # 如果数据已经包含metrics字段，直接使用
-        if "metrics" in data:
-            metrics = data["metrics"]
-        else:
-            # 否则，将整个数据作为metrics
-            metrics = data
-            data = {"metrics": metrics}
-        
-        # 验证metrics字段
+            
+        if not isinstance(data, dict):
+            raise ValueError("基准测试结果必须是字典类型")
+            
+        # 验证 metrics 字段
+        if "metrics" not in data:
+            raise ValueError("基准测试结果必须包含 metrics 字段")
+            
+        metrics = data["metrics"]
         if not isinstance(metrics, dict):
             raise ValueError("metrics 必须是字典类型")
-        
-        # 检查是否有任何指标数据
-        if not metrics:
-            raise ValueError("metrics 不能为空")
-        
-        # 添加时间戳（如果不存在）
-        if "timestamp" not in data:
-            data["timestamp"] = datetime.now().isoformat()
-        
-        def validate_metric_value(value):
-            """递归验证指标值。"""
-            if isinstance(value, (int, float)):
-                return True
-            elif isinstance(value, list):
-                if not value:
-                    return False
-                return all(isinstance(x, (int, float)) for x in value)
-            elif isinstance(value, dict):
-                # 跳过 summary 字段的验证
-                if "summary" in value:
-                    return True
-                if not value:
-                    return False
-                return all(validate_metric_value(v) for v in value.values())
-            return False
-
-        # 验证指标值类型
-        invalid_metrics = []
-        for key, value in metrics.items():
-            if not validate_metric_value(value):
-                invalid_metrics.append(key)
-        
-        if invalid_metrics:
-            raise ValueError(f"以下指标的值类型无效: {', '.join(invalid_metrics)}")
-        
-        # 验证必需的指标
-        required_metrics = ['latency', 'throughput']  # 要求 latency 和 throughput 都是必需的
+            
+        # 验证必需指标
+        required_metrics = ['latency']
         missing_metrics = [metric for metric in required_metrics if metric not in metrics]
         if missing_metrics:
             raise ValueError(f"缺少必需的指标: {', '.join(missing_metrics)}")
             
-        # 确保 throughput 是正数
-        throughput = metrics['throughput']
-        if isinstance(throughput, (int, float)) and throughput <= 0:
-            raise ValueError("throughput 必须是正数")
-        elif isinstance(throughput, list) and any(x <= 0 for x in throughput):
-            raise ValueError("throughput 列表中的所有值必须是正数")
+        # 验证指标值
+        for metric, value in metrics.items():
+            if not self._validate_metric_value(value):
+                raise ValueError(f"指标 {metric} 的值无效")
+                
+        # 验证 throughput 指标（如果存在）
+        if 'throughput' in metrics:
+            throughput = metrics['throughput']
+            if isinstance(throughput, (int, float)):
+                if throughput <= 0:
+                    raise ValueError("throughput 必须是正数")
+            elif isinstance(throughput, list):
+                if not all(isinstance(x, (int, float)) and x > 0 for x in throughput):
+                    raise ValueError("throughput 列表中的所有值必须是正数")
+            else:
+                raise ValueError("throughput 必须是数字或数字列表")
 
     def _generate_visualizations(self, data: Dict[str, Any], include_tradeoff: bool = True) -> List[str]:
         """生成基准测试结果的可视化图表。

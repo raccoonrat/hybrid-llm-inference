@@ -173,7 +173,17 @@ class SystemBenchmarking(BaseBenchmarking):
                     if not os.access(model_path, os.R_OK):
                         raise PermissionError(f"没有权限读取模型文件: {model_path}")
                     
-                    state_dict = torch.load(model_path)
+                    # 检查 PyTorch 版本
+                    import torch
+                    version = torch.__version__
+                    major, minor = map(int, version.split('.')[:2])
+                    
+                    # 对于 PyTorch 2.6 及以上版本，使用 weights_only 参数
+                    if major > 2 or (major == 2 and minor >= 6):
+                        state_dict = torch.load(model_path, weights_only=True)
+                    else:
+                        state_dict = torch.load(model_path)
+                        
                     self.model.load_state_dict(state_dict)
                 except PermissionError as e:
                     logger.warning(f"加载模型状态时出现权限问题: {str(e)}")

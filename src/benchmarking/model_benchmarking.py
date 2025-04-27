@@ -99,9 +99,20 @@ class ModelBenchmarking(BaseBenchmarking):
             raise ValueError("hardware_config 必须是字典类型")
             
         # 设置默认值
-        self.config.setdefault('output_dir', 'benchmark_results')
+        if 'output_dir' not in self.config:
+            self.config['output_dir'] = os.path.join(os.getcwd(), 'benchmark_results')
         self.config.setdefault('model_name', 'model')
         
+        # 验证输出目录
+        output_dir = self.config['output_dir']
+        if not isinstance(output_dir, str):
+            raise ValueError("output_dir 必须是字符串类型")
+        if not output_dir:
+            raise ValueError("output_dir 不能为空")
+            
+        # 创建输出目录
+        os.makedirs(output_dir, exist_ok=True)
+            
         # 验证模型路径
         if "model_path" not in model_config:
             raise ValueError("model_config 必须包含 model_path")
