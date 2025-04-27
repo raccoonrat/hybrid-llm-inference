@@ -137,41 +137,63 @@ class BaseBenchmarking(ABC):
     
     def cleanup(self) -> None:
         """清理资源。"""
-        # 清理注册的资源
-        for resource in self.resources:
-            try:
-                if os.path.isfile(resource):
-                    os.remove(resource)
-                elif os.path.isdir(resource):
-                    shutil.rmtree(resource)
-            except Exception as e:
-                logger.error(f"清理资源失败: {str(e)}")
-        
-        # 清理输出目录
-        if hasattr(self, 'output_dir') and os.path.exists(self.output_dir):
-            try:
-                shutil.rmtree(self.output_dir)
-            except Exception as e:
-                logger.error(f"清理输出目录失败: {str(e)}")
-        
-        # 清理临时文件和目录
-        if hasattr(self, 'temp_file') and os.path.exists(self.temp_file):
-            try:
-                os.remove(self.temp_file)
-                self.register_resource(self.temp_file)
-            except Exception as e:
-                logger.error(f"清理临时文件失败: {str(e)}")
+        try:
+            # 清理注册的资源
+            for resource in self.resources:
+                try:
+                    if os.path.isfile(resource):
+                        try:
+                            os.remove(resource)
+                        except PermissionError:
+                            logger.warning(f"没有权限删除文件: {resource}")
+                        except Exception as e:
+                            logger.warning(f"删除文件时出错: {str(e)}")
+                    elif os.path.isdir(resource):
+                        try:
+                            shutil.rmtree(resource)
+                        except PermissionError:
+                            logger.warning(f"没有权限删除目录: {resource}")
+                        except Exception as e:
+                            logger.warning(f"删除目录时出错: {str(e)}")
+                except Exception as e:
+                    logger.warning(f"清理资源时出错: {str(e)}")
+            
+            # 清理输出目录
+            if hasattr(self, 'output_dir') and os.path.exists(self.output_dir):
+                try:
+                    shutil.rmtree(self.output_dir)
+                except PermissionError:
+                    logger.warning(f"没有权限删除输出目录: {self.output_dir}")
+                except Exception as e:
+                    logger.warning(f"删除输出目录时出错: {str(e)}")
+            
+            # 清理临时文件和目录
+            if hasattr(self, 'temp_file') and os.path.exists(self.temp_file):
+                try:
+                    os.remove(self.temp_file)
+                except PermissionError:
+                    logger.warning(f"没有权限删除临时文件: {self.temp_file}")
+                except Exception as e:
+                    logger.warning(f"删除临时文件时出错: {str(e)}")
                 
-        if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
-            try:
-                shutil.rmtree(self.temp_dir)
-                self.register_resource(self.temp_dir)
-            except Exception as e:
-                logger.error(f"清理临时目录失败: {str(e)}")
-        
-        self.resources.clear()
-        self.initialized = False
-        logger.info("基准测试清理完成")
+            if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
+                try:
+                    shutil.rmtree(self.temp_dir)
+                except PermissionError:
+                    logger.warning(f"没有权限删除临时目录: {self.temp_dir}")
+                except Exception as e:
+                    logger.warning(f"删除临时目录时出错: {str(e)}")
+            
+            # 清空资源列表
+            self.resources.clear()
+            
+            # 重置初始化状态
+            self.initialized = False
+            
+            logger.info("基准测试清理完成")
+        except Exception as e:
+            logger.error(f"清理资源时发生错误: {str(e)}")
+            raise
     
     @abstractmethod
     def _validate_config(self) -> None:

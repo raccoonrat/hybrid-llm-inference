@@ -4,7 +4,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import multiprocessing
 import shutil
 from .base_benchmarking import BaseBenchmarking
@@ -18,6 +18,7 @@ import torch
 from .report_generator import ReportGenerator
 from ..hardware_profiling.base_profiler import HardwareProfiler
 from ..toolbox.logger import get_logger
+import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,20 @@ class SystemBenchmarking(BaseBenchmarking):
 
         Args:
             config: 配置字典，包含以下字段：
+                - model_name: 模型名称
+                - batch_size: 批处理大小
                 - dataset_path: 数据集路径
                 - model_config: 模型配置
                 - output_dir: 输出目录
+                - scheduler_config: 调度器配置（可选，默认为token_based）
         """
+        # 添加默认的调度器配置
+        if "scheduler_config" not in config:
+            config["scheduler_config"] = {
+                "scheduler_type": "token_based",
+                "max_batch_size": 32,
+                "max_queue_size": 100
+            }
         super().__init__(config)
         self.dataset_path = config["dataset_path"]
         self.model_config = config["model_config"]
@@ -57,22 +68,41 @@ class SystemBenchmarking(BaseBenchmarking):
         logger.info("系统基准测试初始化完成")
     
     def _validate_config(self) -> None:
-        """验证配置。"""
-        # 验证硬件配置
-        if not self.hardware_config.get("device"):
-            raise ValueError("硬件配置中必须指定设备")
-        
-        # 验证模型配置
-        if not self.model_config.get("model_path"):
-            raise ValueError("模型配置中必须指定模型路径")
-        
+        """验证配置。
+
+        验证系统基准测试的配置是否有效。
+
+        Raises:
+            ValueError: 当配置无效时抛出
+        """
+        # 验证基本配置
+        required_fields = ["model_name", "batch_size", "dataset_path"]
+        for field in required_fields:
+            if field not in self.config:
+                raise ValueError(f"配置缺少必需字段: {field}")
+
         # 验证调度器配置
-        if not self.scheduler_config.get("scheduler_type"):
-            raise ValueError("调度器配置中必须指定调度器类型")
+        if "scheduler_config" not in self.config:
+            raise ValueError("配置缺少调度器配置")
         
+        scheduler_config = self.config["scheduler_config"]
+        if not isinstance(scheduler_config, dict):
+            raise ValueError("调度器配置必须是字典类型")
+        
+        required_scheduler_fields = ["scheduler_type", "max_batch_size", "max_queue_size"]
+        for field in required_scheduler_fields:
+            if field not in scheduler_config:
+                raise ValueError(f"调度器配置缺少必需字段: {field}")
+
+        # 验证输出目录
+        if "output_dir" not in self.config:
+            raise ValueError("配置缺少输出目录")
+        if not os.path.exists(self.config["output_dir"]):
+            os.makedirs(self.config["output_dir"])
+
         # 验证数据集路径
-        if not os.path.exists(self.dataset_path):
-            raise ValueError(f"数据集路径不存在: {self.dataset_path}")
+        if not os.path.exists(self.config["dataset_path"]):
+            raise ValueError(f"数据集文件不存在: {self.config['dataset_path']}")
     
     def _init_components(self) -> None:
         """初始化组件。
@@ -134,9 +164,27 @@ class SystemBenchmarking(BaseBenchmarking):
             
             # 在非测试模式下加载模型状态
             if os.getenv('TEST_MODE') != '1':
-                state_dict = torch.load(model_path)
-                self.model.load_state_dict(state_dict)
+                try:
+                    if not os.path.exists(model_path):
+                        raise FileNotFoundError(f"模型文件不存在: {model_path}")
+                    
+                    if not os.access(model_path, os.R_OK):
+                        raise PermissionError(f"没有权限读取模型文件: {model_path}")
+                    
+                    state_dict = torch.load(model_path)
+                    self.model.load_state_dict(state_dict)
+                except PermissionError as e:
+                    logger.warning(f"加载模型状态时出现权限问题: {str(e)}")
+                    # 在测试模式下继续执行
+                    if os.getenv('TEST_MODE') == '1':
+                        logger.info("测试模式：跳过模型状态加载")
+                    else:
+                        raise
+                except Exception as e:
+                    logger.error(f"加载模型状态失败: {str(e)}")
+                    raise
             
+            # 设置设备和模式
             self.model.to(self.hardware_config["device"])
             self.model.eval()
             
@@ -282,19 +330,53 @@ class SystemBenchmarking(BaseBenchmarking):
         """清理资源。"""
         try:
             # 清理模型
-            if hasattr(self, 'model'):
-                del self.model
+            if hasattr(self, 'model') and self.model is not None:
+                try:
+                    self.model.cleanup()
+                except Exception as e:
+                    logger.warning(f"清理模型时出错: {str(e)}")
+                finally:
+                    self.model = None
             
             # 清理调度器
-            if hasattr(self, 'scheduler'):
-                del self.scheduler
+            if hasattr(self, 'scheduler') and self.scheduler is not None:
+                try:
+                    self.scheduler.cleanup()
+                except Exception as e:
+                    logger.warning(f"清理调度器时出错: {str(e)}")
+                finally:
+                    self.scheduler = None
             
             # 清理性能分析器
-            if hasattr(self, 'profiler'):
-                del self.profiler
+            if hasattr(self, 'profiler') and self.profiler is not None:
+                try:
+                    self.profiler.cleanup()
+                except Exception as e:
+                    logger.warning(f"清理性能分析器时出错: {str(e)}")
+                finally:
+                    self.profiler = None
+            
+            # 清理数据集
+            if hasattr(self, 'dataset') and self.dataset is not None:
+                self.dataset = None
+            
+            # 清理报告生成器
+            if hasattr(self, 'report_generator') and self.report_generator is not None:
+                try:
+                    self.report_generator.cleanup()
+                except Exception as e:
+                    logger.warning(f"清理报告生成器时出错: {str(e)}")
+                finally:
+                    self.report_generator = None
             
             # 调用父类的清理方法
-            super().cleanup()
+            try:
+                super().cleanup()
+            except Exception as e:
+                logger.warning(f"调用父类清理方法时出错: {str(e)}")
+            
+            # 重置初始化状态
+            self.initialized = False
             
             logger.info("系统基准测试清理完成")
         except Exception as e:
@@ -334,3 +416,34 @@ class SystemBenchmarking(BaseBenchmarking):
         except Exception as e:
             logger.error(f"加载数据集失败: {str(e)}")
             raise
+
+class Linear(nn.Linear):
+    """线性模型类。"""
+
+    def __init__(self, in_features: int, out_features: int, bias: bool = True):
+        """初始化线性模型。
+
+        Args:
+            in_features: 输入特征维度
+            out_features: 输出特征维度
+            bias: 是否使用偏置
+        """
+        super().__init__(in_features, out_features, bias)
+
+    def generate(self, input_data: Union[str, List[str]]) -> Union[str, List[str]]:
+        """生成输出。
+
+        Args:
+            input_data: 输入数据，可以是字符串或字符串列表
+
+        Returns:
+            生成的输出，与输入格式相同
+        """
+        if isinstance(input_data, str):
+            # 对于单个字符串输入，返回其长度的两倍
+            return str(len(input_data) * 2)
+        elif isinstance(input_data, list):
+            # 对于字符串列表，返回每个字符串长度的两倍
+            return [str(len(x) * 2) for x in input_data]
+        else:
+            raise ValueError("输入数据必须是字符串或字符串列表")

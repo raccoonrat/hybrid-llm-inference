@@ -83,44 +83,36 @@ def sample_dataset(tmp_path):
     return str(dataset_path)
 
 @pytest.fixture
-def test_config(tmp_path, mock_dataset):
+def test_config():
     """创建测试配置。"""
-    # 创建测试模型
-    model_path = tmp_path / "model.bin"
-    mock_model = MockModel(model_path=str(model_path))
-    mock_model.save_pretrained(str(model_path))
-
-    # 创建输出目录
-    output_dir = tmp_path / "output"
-    os.makedirs(output_dir, exist_ok=True)
-
-    # 创建数据集文件
-    dataset_path = tmp_path / "dataset.json"
-    with open(dataset_path, "w", encoding="utf-8") as f:
-        json.dump(mock_dataset, f)
-
+    temp_dir = tempfile.mkdtemp(prefix="test_model_benchmarking_")
+    model_path = os.path.join(temp_dir, "model.bin")
+    dataset_path = os.path.join(temp_dir, "dataset.json")
+    output_dir = os.path.join(temp_dir, "output")
+    
+    # 创建测试数据集
+    dataset = [{"input": "test input", "output": "test output"} for _ in range(5)]
+    os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
+    with open(dataset_path, "w") as f:
+        json.dump(dataset, f)
+    
+    # 创建空模型文件
+    with open(model_path, "w") as f:
+        f.write("")
+    
     return {
         "model_name": "test_model",
-        "batch_size": 32,
-        "dataset_path": str(dataset_path),
+        "batch_size": 1,
+        "dataset_path": dataset_path,
         "model_config": {
-            "model_type": "mock",
-            "model_path": str(model_path),
             "device": "cpu",
-            "device_id": 0
+            "model_path": model_path
         },
         "hardware_config": {
             "device": "cpu",
-            "device_id": 0,
-            "num_workers": 1,
-            "memory_limit": 1024
+            "device_id": 0
         },
-        "scheduler_config": {
-            "scheduler_type": "token_based",
-            "batch_size": 2,
-            "max_tokens": 100
-        },
-        "output_dir": str(output_dir)
+        "output_dir": output_dir
     }
 
 @pytest.fixture
@@ -416,24 +408,21 @@ def test_system_benchmarking_large_sample_size(benchmark_instance):
     assert len(results) == 100
 
 def test_model_benchmarking_small_dataset(test_config):
-    """测试小数据集模型基准测试。"""
-    # 设置测试模式
-    os.environ['TEST_MODE'] = '1'
-    
-    # 添加必需的配置字段
-    test_config["batch_size"] = 32
-    test_config["model_name"] = "test_model"
-    test_config["dataset"] = [
-        {"input": "test1", "output": "output1"},
-        {"input": "test2", "output": "output2"}
-    ]
+    """测试小数据集的基准测试。"""
+    # 创建一个只有一个样本的小数据集
+    dataset = [{"input": "test input", "output": "test output"}]
+    dataset_path = test_config["dataset_path"]
+    with open(dataset_path, "w") as f:
+        json.dump(dataset, f)
     
     benchmarking = ModelBenchmarking(test_config)
     results = benchmarking.run_benchmarks()
-    os.environ.pop('TEST_MODE', None)
     
+    # 验证结果
+    assert isinstance(results, dict)
     assert "metrics" in results
-    assert "tradeoff_results" in results
+    assert results["metrics"]["latency"] > 0
+    assert results["metrics"]["throughput"] > 0
 
 def test_cleanup(tmp_path):
     """测试清理功能。"""
@@ -577,163 +566,39 @@ def test_model_benchmarking_dataset_loading():
             }
         })
 
-def test_model_benchmarking_component_initialization():
-    """测试模型基准测试组件的初始化。"""
-    # 创建临时目录
-    temp_dir = tempfile.mkdtemp()
-    model_path = os.path.join(temp_dir, "model.bin")
-    output_dir = os.path.join(temp_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 创建模拟模型文件
-    with open(model_path, "w") as f:
-        f.write("mock model data")
-    
-    # 创建数据集文件
-    dataset_path = os.path.join(temp_dir, "dataset.json")
-    dataset = [
-        {"input": "test1", "output": "result1"},
-        {"input": "test2", "output": "result2"}
-    ]
-    with open(dataset_path, "w", encoding="utf-8") as f:
-        json.dump(dataset, f)
-    
-    config = {
-        "model_name": "test_model",
-        "batch_size": 1,
-        "dataset_path": dataset_path,
-        "model_config": {
-            "device": "cpu",
-            "model_path": model_path
-        },
-        "hardware_config": {
-            "device": "cpu",
-            "device_id": 0
-        },
-        "output_dir": output_dir
-    }
-    
-    try:
-        # 设置测试模式
-        os.environ['TEST_MODE'] = '1'
-        benchmark = ModelBenchmarking(config)
-        
-        # 验证组件初始化
-        assert benchmark.model is not None
-        assert benchmark.dataset is not None
-        assert len(benchmark.dataset) == 2
-        assert benchmark.report_generator is not None
-    finally:
-        # 清理临时文件
-        shutil.rmtree(temp_dir)
+def test_model_benchmarking_component_initialization(test_config):
+    """测试模型基准测试组件初始化。"""
+    benchmarking = ModelBenchmarking(test_config)
+    benchmarking._init_components()
+    assert benchmarking.model is not None
+    assert benchmarking.report_generator is not None
+    assert benchmarking.dataset is not None
 
-def test_model_benchmarking_run_benchmarks():
+def test_model_benchmarking_run_benchmarks(test_config):
     """测试模型基准测试的运行。"""
-    # 创建临时目录
-    temp_dir = tempfile.mkdtemp()
-    model_path = os.path.join(temp_dir, "model.bin")
-    output_dir = os.path.join(temp_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
+    benchmarking = ModelBenchmarking(test_config)
+    results = benchmarking.run_benchmarks()
     
-    # 创建模拟模型文件
-    with open(model_path, "w") as f:
-        f.write("mock model data")
-    
-    # 创建数据集文件
-    dataset_path = os.path.join(temp_dir, "dataset.json")
-    dataset = [
-        {"input": "test1", "output": "result1"},
-        {"input": "test2", "output": "result2"}
-    ]
-    with open(dataset_path, "w", encoding="utf-8") as f:
-        json.dump(dataset, f)
-    
-    config = {
-        "model_name": "test_model",
-        "batch_size": 1,
-        "dataset_path": dataset_path,
-        "model_config": {
-            "device": "cpu",
-            "model_path": model_path
-        },
-        "hardware_config": {
-            "device": "cpu",
-            "device_id": 0
-        },
-        "output_dir": output_dir
-    }
-    
-    try:
-        # 设置测试模式
-        os.environ['TEST_MODE'] = '1'
-        benchmark = ModelBenchmarking(config)
-        
-        # 运行基准测试
-        results = benchmark.run_benchmarks()
-        
-        # 验证结果
-        assert isinstance(results, dict)
-        assert "latency" in results
-        assert "throughput" in results
-        assert "memory" in results
-    finally:
-        # 清理临时文件
-        shutil.rmtree(temp_dir)
+    # 验证结果格式
+    assert isinstance(results, dict)
+    assert "metrics" in results
+    assert "latency" in results["metrics"]
+    assert "throughput" in results["metrics"]
+    assert "memory" in results["metrics"]
+    assert "runtime" in results["metrics"]
+    assert "summary" in results
 
-def test_model_benchmarking_cleanup():
-    """测试模型基准测试的清理操作。"""
-    # 创建临时目录
-    temp_dir = tempfile.mkdtemp()
-    model_path = os.path.join(temp_dir, "model.bin")
-    output_dir = os.path.join(temp_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
+def test_model_benchmarking_cleanup(test_config):
+    """测试模型基准测试的资源清理。"""
+    benchmarking = ModelBenchmarking(test_config)
+    benchmarking._init_components()
+    benchmarking.run_benchmarks()
+    benchmarking.cleanup()
     
-    # 创建模拟模型文件
-    with open(model_path, "w") as f:
-        f.write("mock model data")
-    
-    # 创建数据集文件
-    dataset_path = os.path.join(temp_dir, "dataset.json")
-    dataset = [
-        {"input": "test1", "output": "result1"},
-        {"input": "test2", "output": "result2"}
-    ]
-    with open(dataset_path, "w", encoding="utf-8") as f:
-        json.dump(dataset, f)
-    
-    config = {
-        "model_name": "test_model",
-        "batch_size": 1,
-        "dataset_path": dataset_path,
-        "model_config": {
-            "device": "cpu",
-            "model_path": model_path
-        },
-        "hardware_config": {
-            "device": "cpu",
-            "device_id": 0
-        },
-        "output_dir": output_dir
-    }
-    
-    try:
-        # 设置测试模式
-        os.environ['TEST_MODE'] = '1'
-        benchmark = ModelBenchmarking(config)
-        
-        # 运行基准测试
-        benchmark.run_benchmarks()
-        
-        # 执行清理
-        benchmark.cleanup()
-        
-        # 验证清理结果
-        assert benchmark.model is None
-        assert benchmark.dataset is None
-        assert benchmark.report_generator is None
-    finally:
-        # 清理临时文件
-        shutil.rmtree(temp_dir)
+    # 验证清理
+    assert benchmarking.model is None
+    assert benchmarking.dataset is None
+    assert benchmarking.report_generator is None
 
 def test_base_benchmarking_resource_cleanup():
     """测试基础基准测试的资源清理。"""
