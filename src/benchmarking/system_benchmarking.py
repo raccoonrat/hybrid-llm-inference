@@ -148,12 +148,21 @@ class SystemBenchmarking(BaseBenchmarking):
     def _init_model(self) -> None:
         """初始化模型。"""
         try:
-            # 获取模型配置
-            model_config = self.config_manager.get_model_config()
-            model_path = self.config_manager.get_model_path()
+            # 获取模型路径
+            model_path = self.model_config.get("model_path")
+            if not model_path:
+                raise ValueError("model_config 必须包含 model_path")
+            
+            # 加载模型状态
+            try:
+                state_dict = torch.load(model_path, weights_only=False)
+                self.logger.info("模型状态加载成功")
+            except Exception as e:
+                self.logger.error(f"加载模型状态失败: {str(e)}")
+                raise
             
             # 创建模型实例
-            model_type = model_config.get("model_type", "test_model")
+            model_type = self.model_config.get("model_type", "test_model")
             if model_type == "test_model":
                 # 在测试模式下使用 MockModel
                 from src.model_zoo.mock_model import MockModel

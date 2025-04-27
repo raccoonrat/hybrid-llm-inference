@@ -78,58 +78,43 @@ class ModelBenchmarking(BaseBenchmarking):
         self._validate_dataset()
     
     def _validate_config(self) -> None:
-        """验证配置是否有效。"""
+        """验证配置的有效性。"""
         if not isinstance(self.config, dict):
             raise ValueError("配置必须是字典类型")
-            
-        # 检查必需字段
-        required_fields = ['model_config', 'hardware_config']
-        missing_fields = [field for field in required_fields if field not in self.config]
-        if missing_fields:
-            raise ValueError(f"缺少必需的配置字段: {', '.join(missing_fields)}")
-            
-        # 验证模型配置
-        model_config = self.config['model_config']
-        if not isinstance(model_config, dict):
-            raise ValueError("model_config 必须是字典类型")
-            
-        # 验证硬件配置
-        hardware_config = self.config['hardware_config']
-        if not isinstance(hardware_config, dict):
-            raise ValueError("hardware_config 必须是字典类型")
-            
+
+        # 验证必需的配置项
+        required_fields = ["model_config", "hardware_config"]
+        for field in required_fields:
+            if field not in self.config:
+                raise ValueError(f"缺少必需的配置项: {field}")
+            if not isinstance(self.config[field], dict):
+                raise ValueError(f"{field}必须是字典类型")
+
         # 设置默认值
-        if 'output_dir' not in self.config:
-            self.config['output_dir'] = os.path.join(os.getcwd(), 'benchmark_results')
-        self.config.setdefault('model_name', 'model')
-        
-        # 验证输出目录
-        output_dir = self.config['output_dir']
-        if not isinstance(output_dir, str):
-            raise ValueError("output_dir 必须是字符串类型")
-        if not output_dir:
-            raise ValueError("output_dir 不能为空")
-            
-        # 创建输出目录
-        os.makedirs(output_dir, exist_ok=True)
-            
+        self.config.setdefault("output_dir", "output")
+        self.config.setdefault("model_name", "default_model")
+
+        # 验证数据集路径
+        if "dataset_path" not in self.config:
+            raise ValueError("缺少数据集路径配置")
+        if not os.path.exists(self.config["dataset_path"]):
+            raise ValueError(f"数据集路径不存在: {self.config['dataset_path']}")
+
         # 验证模型路径
-        if "model_path" not in model_config:
-            raise ValueError("model_config 必须包含 model_path")
-            
-        model_path = model_config["model_path"]
-        if not isinstance(model_path, str):
-            raise ValueError("model_path 必须是字符串类型")
-            
-        # 在测试模式下,允许模型路径不存在
-        if not os.path.exists(model_path) and not os.environ.get('TEST_MODE'):
-            raise ValueError(f"模型路径不存在: {model_path}")
+        if "model_path" not in self.config["model_config"]:
+            raise ValueError("缺少模型路径配置")
+        if not os.path.exists(self.config["model_config"]["model_path"]):
+            raise ValueError(f"模型路径不存在: {self.config['model_config']['model_path']}")
+
+        # 验证硬件配置
+        if "device" not in self.config["hardware_config"]:
+            raise ValueError("缺少设备配置")
             
         # 验证设备类型
-        if "device" not in hardware_config:
+        if "device" not in self.hardware_config:
             raise ValueError("hardware_config 必须包含 device")
             
-        device = hardware_config["device"]
+        device = self.hardware_config["device"]
         if device not in ["cpu", "cuda"]:
             raise ValueError("device 必须是 'cpu' 或 'cuda'")
             

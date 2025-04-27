@@ -2,7 +2,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import matplotlib
 matplotlib.use('Agg')  # 使用非GUI后端
 import matplotlib.pyplot as plt
@@ -37,17 +37,10 @@ class ReportGenerator:
         os.makedirs(self.visualization_dir, exist_ok=True)
 
     def _validate_data(self, data: Dict[str, Any]) -> None:
-        """验证基准测试数据。
-
-        Args:
-            data: 基准测试数据字典
-
-        Raises:
-            ValueError: 当数据无效时
-        """
+        """验证基准测试数据的有效性。"""
         if not data:
             raise ValueError("基准测试结果不能为空")
-            
+
         if not isinstance(data, dict):
             raise ValueError("基准测试结果必须是字典类型")
             
@@ -60,27 +53,25 @@ class ReportGenerator:
             raise ValueError("metrics 必须是字典类型")
             
         # 验证必需指标
-        required_metrics = ['latency']
+        required_metrics = ["latency", "throughput"]
         missing_metrics = [metric for metric in required_metrics if metric not in metrics]
         if missing_metrics:
             raise ValueError(f"缺少必需的指标: {', '.join(missing_metrics)}")
             
         # 验证指标值
         for metric, value in metrics.items():
-            if not self._validate_metric_value(value):
-                raise ValueError(f"指标 {metric} 的值无效")
+            self._validate_metric_value(value, metric)
                 
-        # 验证 throughput 指标（如果存在）
-        if 'throughput' in metrics:
-            throughput = metrics['throughput']
-            if isinstance(throughput, (int, float)):
-                if throughput <= 0:
-                    raise ValueError("throughput 必须是正数")
-            elif isinstance(throughput, list):
-                if not all(isinstance(x, (int, float)) and x > 0 for x in throughput):
-                    raise ValueError("throughput 列表中的所有值必须是正数")
-            else:
-                raise ValueError("throughput 必须是数字或数字列表")
+        # 验证 throughput 指标
+        throughput = metrics['throughput']
+        if isinstance(throughput, (int, float)):
+            if throughput <= 0:
+                raise ValueError("throughput 必须是正数")
+        elif isinstance(throughput, list):
+            if not all(isinstance(x, (int, float)) and x > 0 for x in throughput):
+                raise ValueError("throughput 列表中的所有值必须是正数")
+        else:
+            raise ValueError("throughput 必须是数字或数字列表")
 
     def _generate_visualizations(self, data: Dict[str, Any], include_tradeoff: bool = True) -> List[str]:
         """生成基准测试结果的可视化图表。
@@ -413,40 +404,28 @@ class ReportGenerator:
                 if metric == "throughput" and val == 0:
                     raise ValueError(f"values中的第{i+1}个元素的throughput不能为0")
     
-    def _validate_metric_value(self, value, key):
-        """验证指标值的格式。
-        
+    def _validate_metric_value(self, value: Union[float, List[float], Dict[str, float]], key: str) -> None:
+        """验证指标值的有效性。
+
         Args:
             value: 要验证的指标值
-            key: 指标的键名
-            
-        Returns:
-            bool: 验证是否通过
-            
-        Raises:
-            ValueError: 当验证失败时抛出，包含具体错误信息
-        """
-        # 特殊处理 summary 字段，允许非数值数据
-        if key == "summary":
-            return True
+            key: 指标名称
         
-        if isinstance(value, (int, float)):
-            return True
+        Raises:
+            ValueError: 当指标值无效时抛出
+        """
+        if isinstance(value, (float, int)):
+            if value <= 0:
+                raise ValueError(f"{key}指标值必须为正数")
         elif isinstance(value, list):
-            # 递归验证列表中的每个值
-            for item in value:
-                if not isinstance(item, (int, float)):
-                    raise ValueError(f"列表中的指标值必须是数值类型: {key}")
-            return True
+            if not value or not all(isinstance(v, (float, int)) and v > 0 for v in value):
+                raise ValueError(f"{key}指标列表中的所有值必须为正数")
         elif isinstance(value, dict):
-            # 递归验证字典中的每个值
-            for k, v in value.items():
-                if k != "summary":  # 跳过 summary 字段的验证
-                    self._validate_metric_value(v, k)
-            return True
+            if not value or not all(isinstance(v, (float, int)) and v > 0 for v in value.values()):
+                raise ValueError(f"{key}指标字典中的所有值必须为正数")
         else:
-            raise ValueError(f"指标值必须是数值类型、数值列表或字典: {key}")
-    
+            raise ValueError(f"{key}指标值类型必须是数字、列表或字典")
+
     def validate_metrics(self, metrics):
         """验证指标数据的格式。
         
