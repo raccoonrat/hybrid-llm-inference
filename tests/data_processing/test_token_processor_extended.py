@@ -10,9 +10,12 @@ from pathlib import Path
 import json
 from src.data_processing.token_processor import TokenProcessor, MockTokenizer
 from src.data_processing.token_processing import TokenProcessing
+from src.data_processing.data_processor import DataProcessor
+from src.data_processing.alpaca_loader import AlpacaLoader
 import matplotlib
 matplotlib.use('Agg')  # 使用非交互式后端
 import time
+import tempfile
 
 @pytest.fixture
 def model_path(tmp_path):
