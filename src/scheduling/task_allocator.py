@@ -38,6 +38,7 @@ class TaskAllocator(BaseAllocator):
         self.hardware_config = config.get("hardware_config", {})
         self.model_config = config.get("model_config", {})
         self.initialized = False
+        self.token_threshold = config.get("token_threshold", 128)  # 默认阈值
 
         # 验证配置
         self._validate_config()
@@ -98,12 +99,10 @@ class TaskAllocator(BaseAllocator):
         if total_tokens <= 0:
             raise ValueError("总令牌数必须大于 0")
         
-        if total_tokens <= 1000:
-            return "apple_m1_pro"
-        elif total_tokens <= 5000:
-            return "nvidia_rtx4050"
+        if total_tokens <= self.token_threshold:
+            return "nvidia_rtx4050"  # 小任务分配给GPU
         else:
-            return "nvidia_rtx4090"
+            return "apple_m1_pro"  # 大任务分配给CPU
     
     def allocate(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

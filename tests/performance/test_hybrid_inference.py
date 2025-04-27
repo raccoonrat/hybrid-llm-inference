@@ -3,6 +3,7 @@
 """
 import pytest
 import time
+import os
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from src.model_inference.hybrid_inference import HybridInference
 
@@ -10,13 +11,23 @@ from src.model_inference.hybrid_inference import HybridInference
 HARDWARE_CONFIG = {
     "device_type": "nvidia",
     "idle_power": 10.0,
-    "sample_interval": 0.1
+    "sample_interval": 100  # 修改为 100 毫秒
 }
 
 MODEL_CONFIG = {
-    "name": "tinyllama",
-    "size": "1.1B",
-    "precision": "int8"
+    "models": [{
+        "name": "tinyllama",
+        "model_config": {
+            "model_path": "D:/Dev/cursor/github.com/hybrid-llm-inference/models/TinyLlama-1.1B-Chat-v1.0",
+            "device": "cuda",
+            "dtype": "float32",
+            "max_memory": None
+        }
+    }],
+    "scheduler_config": {
+        "token_threshold": 128,
+        "hardware_config": HARDWARE_CONFIG
+    }
 }
 
 @pytest.fixture
@@ -27,7 +38,9 @@ def profiler():
 @pytest.fixture
 def hybrid_inference(profiler):
     """创建 HybridInference 实例的 fixture。"""
-    return HybridInference(profiler, MODEL_CONFIG)
+    # 设置测试模式
+    os.environ['TEST_MODE'] = '1'
+    return HybridInference(MODEL_CONFIG)
 
 def test_initialization(hybrid_inference):
     """测试初始化。"""

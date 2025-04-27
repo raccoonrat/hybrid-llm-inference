@@ -3,8 +3,9 @@
 import os
 from typing import Dict, Any, List, Optional
 from toolbox.logger import get_logger
-from src.model_zoo.base_model import BaseModel
+from src.model_zoo.tinyllama import TinyLlama
 from src.scheduling.token_based_scheduler import TokenBasedScheduler
+from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 
 logger = get_logger(__name__)
 
@@ -22,7 +23,8 @@ class HybridInference:
         self.config = config
         self.models = []
         self.scheduler = None
-        self.initialized = False
+        self.is_initialized = False
+        self.profiler = RTX4050Profiler(config["scheduler_config"]["hardware_config"])
         
         # 验证配置
         self._validate_config()
@@ -50,67 +52,78 @@ class HybridInference:
         """初始化组件。"""
         # 初始化模型
         for model_config in self.config["models"]:
-            model = BaseModel(model_config)
+            if model_config["name"].lower() == "tinyllama":
+                model = TinyLlama(model_config["model_config"])
+            else:
+                raise ValueError(f"不支持的模型: {model_config['name']}")
             self.models.append(model)
         
         # 初始化调度器
         self.scheduler = TokenBasedScheduler(self.config.get("scheduler_config", {}))
         self.scheduler.initialize()
         
+        self.is_initialized = True
         logger.info("组件初始化完成")
     
-    def inference(self, input_text: str, max_tokens: int = 512) -> Dict[str, Any]:
+    def infer(self, task: Dict[str, Any]) -> str:
         """执行推理。
 
         Args:
-            input_text: 输入文本
-            max_tokens: 最大令牌数
+            task: 任务字典，包含以下字段：
+                - input: 输入文本
+                - max_tokens: 最大生成令牌数
 
         Returns:
-            推理结果
+            生成的文本
         """
-        if not self.initialized:
-            raise RuntimeError("混合推理未初始化")
-            
-        try:
-            # 创建任务
-            task = {
-                "input": input_text,
-                "max_tokens": max_tokens
-            }
-            
-            # 调度任务
-            scheduled_tasks = self.scheduler.schedule([task], self.models[0].__class__.__name__)
-            
-            if not scheduled_tasks:
-                raise RuntimeError("任务调度失败")
-                
-            # 执行推理
-            result = self.models[0].inference(input_text, max_tokens)
-            
-            return {
-                "input": input_text,
-                "output": result,
-                "model": self.models[0].__class__.__name__
-            }
-        except Exception as e:
-            logger.error(f"推理失败: {e}")
-            raise
+        if not self.is_initialized:
+            raise RuntimeError("HybridInference 未初始化")
+        if task is None:
+            raise ValueError("任务不能为 None")
+        if not isinstance(task, dict):
+            raise TypeError("任务必须是字典类型")
+        if "input" not in task or "max_tokens" not in task:
+            raise ValueError("任务必须包含 input 和 max_tokens 字段")
+
+        # 调度任务
+        scheduled_tasks = self.scheduler.schedule([task])
+        if not scheduled_tasks:
+            raise RuntimeError("调度器未返回任何任务")
+        
+        scheduled_task = scheduled_tasks[0]
+        model_name = scheduled_task["model"]
+        hardware = scheduled_task["hardware"]
+        
+        # 选择对应的模型
+        selected_model = None
+        for model in self.models:
+            if model.__class__.__name__.lower() == model_name.lower():
+                selected_model = model
+                break
+        
+        if selected_model is None:
+            raise RuntimeError(f"未找到模型：{model_name}")
+        
+        # 执行推理
+        return selected_model.generate(task["input"], max_tokens=task["max_tokens"])
     
     def cleanup(self) -> None:
         """清理资源。"""
-        if self.initialized:
-            try:
-                # 清理模型
-                for model in self.models:
-                    model.cleanup()
-                    
-                # 清理调度器
-                if self.scheduler:
-                    self.scheduler.cleanup()
-                    
-                self.initialized = False
-                logger.info("混合推理清理完成")
-            except Exception as e:
-                logger.error(f"清理失败: {e}")
-                raise 
+        try:
+            # 清理模型
+            for model in self.models:
+                model.cleanup()
+                
+            # 清理调度器
+            if self.scheduler:
+                self.scheduler.cleanup()
+                
+            # 清理性能分析器
+            if self.profiler:
+                self.profiler.cleanup()
+                
+            self.is_initialized = False
+            logger.info("混合推理清理完成")
+        except Exception as e:
+            logger.error(f"清理失败: {e}")
+            raise 

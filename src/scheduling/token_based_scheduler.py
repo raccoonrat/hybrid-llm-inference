@@ -57,11 +57,13 @@ class TokenBasedScheduler(BaseScheduler):
 
         Args:
             tasks: 任务列表，每个任务包含以下字段：
-                - tokens: 令牌数量
+                - input: 输入文本
+                - max_tokens: 最大生成令牌数
 
         Returns:
             调度后的任务列表，每个任务包含以下字段：
-                - tokens: 令牌数量
+                - input: 输入文本
+                - max_tokens: 最大生成令牌数
                 - model: 分配的模型
                 - hardware: 分配的硬件
         """
@@ -78,27 +80,34 @@ class TokenBasedScheduler(BaseScheduler):
                 raise ValueError("任务不能为 None")
             if not isinstance(task, dict):
                 raise TypeError("任务必须是字典类型")
-            if "tokens" not in task:
-                raise ValueError("任务必须包含 tokens 字段")
+            if "input" not in task or "max_tokens" not in task:
+                raise ValueError("任务必须包含 input 和 max_tokens 字段")
                 
-            tokens = task["tokens"]
-            if not isinstance(tokens, (int, float)):
-                raise ValueError("令牌数量必须是数字")
-            if tokens < 0:
-                raise ValueError("令牌数量不能为负数")
-                
-            if tokens <= self.token_threshold:
+            input_text = task["input"]
+            max_tokens = task["max_tokens"]
+            
+            # 计算输入文本的令牌数量（简单估计）
+            input_tokens = len(input_text.split())
+            total_tokens = input_tokens + max_tokens
+            
+            # 基于总令牌数和硬件配置进行分配
+            if total_tokens <= 1000:
                 model = "tinyllama"
                 hardware = "apple_m1_pro"
+            elif total_tokens <= 5000:
+                model = "tinyllama"
+                hardware = "nvidia_rtx4050"
             else:
                 model = "llama3"
-                hardware = "rtx4050"
+                hardware = "nvidia_rtx4090"
             
-            scheduled_tasks.append({
-                "tokens": tokens,
+            scheduled_task = task.copy()
+            scheduled_task.update({
                 "model": model,
-                "hardware": hardware
+                "hardware": hardware,
+                "estimated_tokens": total_tokens
             })
+            scheduled_tasks.append(scheduled_task)
 
         return scheduled_tasks
 

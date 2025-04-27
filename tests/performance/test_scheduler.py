@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import time
 import psutil
-from src.scheduling.task_scheduler import TaskScheduler
+from src.scheduling.task_based_scheduler import TaskBasedScheduler
 from src.scheduling.task_allocator import TaskAllocator
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 from src.hardware_profiling.base_profiler import HardwareProfiler
@@ -30,13 +30,51 @@ class TestScheduler:
         cls.dataset_path = "data/alpaca_data.json"
         cls.data_loader = AlpacaLoader(cls.dataset_path)
         
+        # 初始化调度器配置
+        cls.scheduler_config = {
+            "hardware_config": {
+                "apple_m1_pro": {
+                    "device_type": "m1_pro",
+                    "idle_power": 10.0,
+                    "sample_interval": 200
+                },
+                "nvidia_rtx4050": {
+                    "device_type": "rtx4050",
+                    "idle_power": 15.0,
+                    "sample_interval": 200
+                }
+            },
+            "model_config": {
+                "models": {
+                    "tinyllama": {
+                        "model_name": "tinyllama",
+                        "model_path": "path/to/model",
+                        "mode": "local",
+                        "batch_size": 1,
+                        "max_length": 128
+                    }
+                }
+            }
+        }
+        
         # 初始化调度器
-        cls.scheduler = TaskScheduler()
-        cls.allocator = TaskAllocator()
+        cls.scheduler = TaskBasedScheduler(cls.scheduler_config)
+        cls.allocator = TaskAllocator(cls.scheduler_config)
         
         # 设置阈值
         cls.token_threshold = 128
         cls.latency_threshold = 1.0
+        
+        # 加载测试数据
+        cls.test_data = cls.data_loader.load_samples(10)  # 加载10个样本用于测试
+        logger.info(f"Loaded {len(cls.test_data)} test samples")
+        
+        # 初始化性能指标
+        cls.total_tasks = 0
+        cls.correct_allocations = 0
+        cls.total_latency = 0.0
+        cls.gpu_utilization = []
+        cls.cpu_utilization = []
         
     def test_task_allocation_accuracy(self):
         """测试任务分配准确性"""
@@ -51,16 +89,18 @@ class TestScheduler:
             
             # 根据token数量分配任务
             if input_tokens <= self.token_threshold:
-                expected_device = "gpu"  # 小任务分配给GPU
+                expected_device = "nvidia_rtx4050"  # 小任务分配给GPU
             else:
-                expected_device = "cpu"  # 大任务分配给CPU
+                expected_device = "apple_m1_pro"  # 大任务分配给CPU
                 
             # 获取实际分配
-            actual_device = self.allocator.allocate_task(
-                sample["instruction"],
-                sample["input"],
-                self.token_threshold
-            )
+            task = {
+                "input_tokens": input_tokens,
+                "output_tokens": len(sample["output"].split()),
+                "model": "tinyllama"
+            }
+            allocation = self.allocator.allocate([task])[0]
+            actual_device = allocation["hardware"]
             
             allocations.append({
                 "input_tokens": input_tokens,
@@ -93,7 +133,7 @@ class TestScheduler:
             def task_fn():
                 # 模拟任务执行
                 time.sleep(0.1)  # 确保有运行时间
-                if device == "gpu" and torch.cuda.is_available():
+                if device == "nvidia_rtx4050" and torch.cuda.is_available():
                     # 模拟GPU计算
                     x = torch.randn(1000, 1000, device="cuda")
                     for _ in range(5):  # 增加计算量
@@ -133,14 +173,21 @@ class TestScheduler:
         
         # 执行任务并收集指标
         for sample in test_samples:
-            device = self.allocator.allocate_task(
-                sample["instruction"],
-                sample["input"],
-                self.token_threshold
-            )
+            # 计算输入token数量
+            input_tokens = len(sample["instruction"].split()) + len(sample["input"].split())
+            output_tokens = len(sample["output"].split())
+            
+            # 分配任务
+            task = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "model": "tinyllama"
+            }
+            allocation = self.allocator.allocate([task])[0]
+            device = allocation["hardware"]
             
             metrics = measure_task(sample, device)
-            if device == "gpu":
+            if device == "nvidia_rtx4050":
                 gpu_usage.append(metrics["gpu_util"])
             else:
                 cpu_usage.append(metrics["cpu_util"])
@@ -176,25 +223,28 @@ class TestScheduler:
             start_time = time.time()
             
             # 获取任务分配
-            device = self.allocator.allocate_task(
-                sample["instruction"],
-                sample["input"],
-                self.token_threshold
-            )
+            input_tokens = len(sample["instruction"].split()) + len(sample["input"].split())
+            output_tokens = len(sample["output"].split())
+            
+            task = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "model": "tinyllama"
+            }
+            allocation = self.allocator.allocate([task])[0]
+            device = allocation["hardware"]
             
             # 模拟任务执行
             if device == "gpu":
                 def task_fn():
                     # 模拟GPU处理
                     torch.cuda.synchronize()
-                    input_tokens = len(sample["instruction"].split()) + len(sample["input"].split())
-                    output_tokens = len(sample["output"].split())
                     return input_tokens, output_tokens
 
                 self.gpu_profiler.measure(
                     task_fn,
-                    len(sample["instruction"].split()) + len(sample["input"].split()),
-                    len(sample["output"].split())
+                    input_tokens,
+                    output_tokens
                 )
             else:
                 # 模拟CPU处理
@@ -224,7 +274,10 @@ class TestScheduler:
     @classmethod
     def teardown_class(cls):
         """测试类清理"""
-        if hasattr(cls, 'gpu_profiler'):
-            del cls.gpu_profiler
+        # 清理资源
+        cls.gpu_profiler.cleanup()
+        cls.scheduler = None
+        cls.allocator = None
+        cls.data_loader = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache() 

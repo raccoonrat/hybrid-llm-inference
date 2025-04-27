@@ -36,11 +36,28 @@ class TinyLlama(BaseModel):
         self.max_memory = model_config.get("max_memory", None)
         
         # 验证配置
+        self._validate_base_config()
         self._validate_config()
         
         # 初始化模型
         if os.getenv('TEST_MODE') != '1':
             self._init_model()
+    
+    def _validate_base_config(self) -> None:
+        """验证基础配置。"""
+        model_config = self.config_manager.get_model_config()
+        
+        # 验证模型路径
+        if not model_config.get("model_path"):
+            raise ValueError("模型路径不能为空")
+        
+        # 验证设备
+        if model_config.get("device") not in ["cpu", "cuda"]:
+            raise ValueError("设备必须是 'cpu' 或 'cuda'")
+            
+        # 验证数据类型
+        if self.dtype not in ["float32", "float16", "bfloat16"]:
+            raise ValueError("数据类型必须是 'float32'、'float16' 或 'bfloat16'")
     
     def _validate_config(self) -> None:
         """验证配置。"""
