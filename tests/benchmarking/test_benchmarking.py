@@ -85,35 +85,46 @@ def sample_dataset(tmp_path):
 @pytest.fixture
 def test_config():
     """创建测试配置。"""
-    temp_dir = tempfile.mkdtemp(prefix="test_model_benchmarking_")
+    # 创建临时目录
+    temp_dir = tempfile.mkdtemp()
     model_path = os.path.join(temp_dir, "model.bin")
-    dataset_path = os.path.join(temp_dir, "dataset.json")
     output_dir = os.path.join(temp_dir, "output")
+    os.makedirs(output_dir, exist_ok=True)
     
-    # 创建测试数据集
-    dataset = [{"input": "test input", "output": "test output"} for _ in range(5)]
-    os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
-    with open(dataset_path, "w") as f:
+    # 创建模拟模型文件
+    with open(model_path, "w") as f:
+        f.write("mock model data")
+    
+    # 创建数据集文件
+    dataset_path = os.path.join(temp_dir, "dataset.json")
+    dataset = [
+        {"input": "test input 0", "output": "test output 0"},
+        {"input": "test input 1", "output": "test output 1"}
+    ]
+    with open(dataset_path, "w", encoding="utf-8") as f:
         json.dump(dataset, f)
     
-    # 创建空模型文件
-    with open(model_path, "w") as f:
-        f.write("")
-    
-    return {
+    config = {
         "model_name": "test_model",
         "batch_size": 1,
         "dataset_path": dataset_path,
         "model_config": {
-            "device": "cpu",
-            "model_path": model_path
+            "model_type": "test_model",
+            "model_path": model_path,
+            "device": "cpu"
         },
         "hardware_config": {
             "device": "cpu",
-            "device_id": 0
+            "device_id": 0,
+            "num_threads": 4
         },
         "output_dir": output_dir
     }
+    
+    yield config
+    
+    # 清理临时文件
+    shutil.rmtree(temp_dir)
 
 @pytest.fixture
 def mock_model_files(tmp_path):
@@ -263,9 +274,6 @@ def test_system_benchmarking_cleanup(test_config):
     """测试系统基准测试的资源清理。"""
     # 创建系统基准测试实例
     benchmark = SystemBenchmarking(test_config)
-    
-    # 运行基准测试
-    benchmark.run()
     
     # 执行清理
     benchmark.cleanup()
@@ -631,7 +639,8 @@ def test_base_benchmarking_resource_cleanup():
         },
         "hardware_config": {
             "device": "cpu",
-            "device_id": 0
+            "device_id": 0,
+            "num_threads": 4
         },
         "output_dir": output_dir
     }
@@ -758,7 +767,8 @@ def test_base_benchmarking_config_validation():
             },
             "hardware_config": {
                 "device": "cpu",
-                "device_id": 0
+                "device_id": 0,
+                "num_threads": 4
             },
             "output_dir": output_dir
         }

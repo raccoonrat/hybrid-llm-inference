@@ -1,5 +1,7 @@
 import pytest
+import os
 from src.benchmarking.base_benchmarking import BaseBenchmarking
+from src.benchmarking.mock_benchmarking import MockBenchmarking
 
 def test_base_benchmarking_config_validation():
     """测试基准测试配置验证"""
@@ -9,7 +11,7 @@ def test_base_benchmarking_config_validation():
         "batch_size": 32
     }
     with pytest.raises(ValueError, match=r".*dataset_path.*"):
-        BaseBenchmarking(invalid_config)
+        MockBenchmarking(invalid_config)
 
     # 测试无效的批处理大小
     invalid_batch_config = {
@@ -18,7 +20,7 @@ def test_base_benchmarking_config_validation():
         "batch_size": -1
     }
     with pytest.raises(ValueError, match=r".*batch_size.*"):
-        BaseBenchmarking(invalid_batch_config)
+        MockBenchmarking(invalid_batch_config)
 
     # 测试有效配置
     valid_config = {
@@ -29,7 +31,7 @@ def test_base_benchmarking_config_validation():
         "device": "cpu",
         "metrics": ["latency", "energy", "throughput"]
     }
-    benchmarking = BaseBenchmarking(valid_config)
+    benchmarking = MockBenchmarking(valid_config)
     assert benchmarking.config == valid_config
 
 def test_base_benchmarking_run():
@@ -42,7 +44,7 @@ def test_base_benchmarking_run():
         "device": "cpu",
         "metrics": ["latency", "energy", "throughput"]
     }
-    benchmarking = BaseBenchmarking(config)
+    benchmarking = MockBenchmarking(config)
     
     # 基类的运行方法应该抛出 NotImplementedError
     with pytest.raises(NotImplementedError):
@@ -58,7 +60,7 @@ def test_base_benchmarking_collect_metrics():
         "device": "cpu",
         "metrics": ["latency", "energy", "throughput"]
     }
-    benchmarking = BaseBenchmarking(config)
+    benchmarking = MockBenchmarking(config)
     
     # 基类的指标收集方法应该抛出 NotImplementedError
     with pytest.raises(NotImplementedError):
@@ -74,7 +76,7 @@ def test_base_benchmarking_validate_metrics():
         "device": "cpu",
         "metrics": ["latency", "energy", "throughput"]
     }
-    benchmarking = BaseBenchmarking(config)
+    benchmarking = MockBenchmarking(config)
 
     # 测试无效的指标数据
     invalid_metrics = {

@@ -155,7 +155,9 @@ class SystemBenchmarking(BaseBenchmarking):
             # 创建模型实例
             model_type = model_config.get("model_type", "test_model")
             if model_type == "test_model":
-                self.model = torch.nn.Linear(10, 10)
+                # 在测试模式下使用 MockModel
+                from src.model_zoo.mock_model import MockModel
+                self.model = MockModel(model_path=model_path)
             elif model_type == "mock":
                 from src.model_zoo.mock_model import MockModel
                 self.model = MockModel(model_path=model_path)

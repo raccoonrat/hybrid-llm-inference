@@ -6,36 +6,51 @@ from src.benchmarking.report_generator import ReportGenerator
 import pytest
 import numpy as np
 from datetime import datetime
+import tempfile
 
 class TestReportGenerator(unittest.TestCase):
     def setUp(self):
         """设置测试环境。"""
-        self.test_dir = Path("test_output")
-        self.test_dir.mkdir(exist_ok=True)
+        # 创建临时目录
+        self.temp_dir = tempfile.mkdtemp()
+        self.output_dir = os.path.join(self.temp_dir, "output")
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        # 创建报告生成器
+        self.report_generator = ReportGenerator(self.output_dir)
         
         # 创建测试数据
         self.test_data = {
             "metrics": {
-                "throughput": 100.5,
                 "latency": 0.1,
+                "memory_usage": 2048.0,
                 "power_usage": 50.2,
-                "memory_usage": 2048.0
+                "throughput": 100.5,
+                "energy": 10.0
             },
             "parallel_metrics": [
-                {"throughput": 90.0, "latency": 0.12},
-                {"throughput": 95.0, "latency": 0.11},
-                {"throughput": 105.0, "latency": 0.09},
-                {"throughput": 110.0, "latency": 0.08}
+                {
+                    "latency": 0.2,
+                    "memory_usage": 1024.0,
+                    "power_usage": 25.1,
+                    "throughput": 50.2,
+                    "energy": 5.0
+                },
+                {
+                    "latency": 0.3,
+                    "memory_usage": 3072.0,
+                    "power_usage": 75.3,
+                    "throughput": 150.8,
+                    "energy": 15.0
+                }
             ],
             "scheduling_metrics": {
-                "strategy": "token_based",
+                "avg_queue_length": 2.5,
                 "num_workers": 4,
-                "avg_queue_length": 2.5
-            }
+                "strategy": "token_based"
+            },
+            "timestamp": "2025-04-27T10:02:00.986751"
         }
-        
-        # 初始化报告生成器
-        self.report_generator = ReportGenerator(str(self.test_dir))
 
     def test_data_validation(self):
         """测试数据验证功能。"""
@@ -64,7 +79,7 @@ class TestReportGenerator(unittest.TestCase):
 
     def test_tradeoff_curve(self):
         """测试权衡曲线生成。"""
-        curve_path = self.test_dir / "test_curve.png"
+        curve_path = self.output_dir / "test_curve.png"
         self.report_generator._plot_tradeoff_curve(self.test_data, str(curve_path))
         
         # 验证图表文件是否生成
@@ -90,13 +105,13 @@ class TestReportGenerator(unittest.TestCase):
             self.assertIn("scheduling_metrics", content)
             
         # 验证权衡曲线图片是否生成
-        curve_path = self.test_dir / "tradeoff_curve.png"
+        curve_path = self.output_dir / "tradeoff_curve.png"
         self.assertTrue(curve_path.exists())
 
     def tearDown(self):
         """清理测试环境。"""
         import shutil
-        shutil.rmtree(self.test_dir)
+        shutil.rmtree(self.temp_dir)
 
 @pytest.fixture
 def sample_benchmark_results():

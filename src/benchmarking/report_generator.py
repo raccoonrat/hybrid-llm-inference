@@ -194,48 +194,52 @@ class ReportGenerator:
         plt.close('all')
         return chart_files
 
-    def generate_report(
-        self, 
-        benchmark_results: Dict[str, Any], 
-        output_format: str = "json",
-        include_visualizations: bool = True
-    ) -> str:
+    def generate_report(self, data: Dict[str, Any], output_format: str = "json") -> str:
         """生成基准测试报告。
 
         Args:
-            benchmark_results: 基准测试结果
-            output_format: 报告格式 ("json" 或 "markdown")
-            include_visualizations: 是否包含可视化图表
+            data: 基准测试数据
+            output_format: 输出格式，支持 "json" 和 "html"
 
         Returns:
-            str: 报告文件路径
+            报告文件路径
         """
-        # 验证数据
-        self._validate_data(benchmark_results)
-        
-        # 生成可视化
-        if include_visualizations and not benchmark_results.get("charts_generated"):
-            self._generate_visualizations(benchmark_results)
-            benchmark_results["charts_generated"] = True
-
-        # 生成报告文件名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        if output_format.lower() == "json":
+        if output_format == "json":
             report_path = os.path.join(self.output_dir, "report.json")
             with open(report_path, "w", encoding="utf-8") as f:
-                json.dump(benchmark_results, f, indent=2, ensure_ascii=False)
-        elif output_format.lower() == "markdown":
-            report_path = os.path.join(self.output_dir, "report.md")
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        elif output_format == "html":
+            report_path = os.path.join(self.output_dir, "report.html")
+            # 生成HTML报告
+            html_content = self._generate_html_report(data)
             with open(report_path, "w", encoding="utf-8") as f:
-                f.write(self._generate_markdown(benchmark_results))
-        elif output_format.lower() == "csv":
-            report_path = os.path.join(self.output_dir, "report.csv")
-            self._generate_csv_report(benchmark_results, report_path)
+                f.write(html_content)
         else:
-            raise ValueError(f"不支持的报告格式: {output_format}")
-
+            raise ValueError(f"不支持的输出格式: {output_format}")
+        
         return report_path
+    
+    def generate_tradeoff_curve(self, data: Dict[str, Any]) -> str:
+        """生成权衡曲线图。
+
+        Args:
+            data: 基准测试数据
+
+        Returns:
+            图片文件路径
+        """
+        plot_path = os.path.join(self.output_dir, "tradeoff_curve.png")
+        # 生成权衡曲线图
+        plt.figure(figsize=(10, 6))
+        plt.plot(data["latency"], data["energy"], "o-")
+        plt.xlabel("延迟 (ms)")
+        plt.ylabel("能耗 (J)")
+        plt.title("延迟-能耗权衡曲线")
+        plt.grid(True)
+        plt.savefig(plot_path)
+        plt.close()
+        
+        return plot_path
 
     def _generate_markdown(self, results: Dict[str, Any]) -> str:
         """生成 Markdown 格式的报告。"""
@@ -696,3 +700,14 @@ class ReportGenerator:
             raise ValueError(f"不支持的输出格式: {ext}")
         
         return output_path
+
+    def _get_report_path(self, report_type: str) -> str:
+        """获取报告文件路径。
+
+        Args:
+            report_type: 报告类型
+
+        Returns:
+            str: 报告文件路径
+        """
+        return os.path.join(self.output_dir, f"{report_type}_report.json")

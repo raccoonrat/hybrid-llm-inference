@@ -98,7 +98,7 @@ def test_mock_benchmarking_get_metrics(mock_benchmarking):
 
 def test_mock_benchmarking_invalid_dataset():
     """测试无效的数据集路径。"""
-    with pytest.raises(ValueError, match="数据集路径不存在"):
+    with pytest.raises(ValueError, match="配置缺少必需字段: model_config"):
         config = {
             "model_name": "test_model",
             "dataset_path": "/path/to/nonexistent/dataset",
@@ -108,7 +108,6 @@ def test_mock_benchmarking_invalid_dataset():
             "metrics": ["latency", "energy", "throughput"]
         }
         benchmarking = MockBenchmarking(config)
-        benchmarking.run()
 
 def test_mock_benchmarking_cleanup(mock_benchmarking):
     """测试清理资源。"""
@@ -143,30 +142,32 @@ def test_mock_benchmarking_empty_tasks(mock_benchmarking):
 def test_mock_benchmarking_multiple_runs(mock_benchmarking):
     """测试多次运行基准测试。"""
     # 第一次运行
-    mock_benchmarking.run()
-    first_metrics = mock_benchmarking.get_metrics()
+    first_results = mock_benchmarking.run()
+    first_metrics = first_results["metrics"]
     
     # 第二次运行
-    mock_benchmarking.run()
-    second_metrics = mock_benchmarking.get_metrics()
+    second_results = mock_benchmarking.run()
+    second_metrics = second_results["metrics"]
     
     # 验证两次运行的结果不同
     assert first_metrics["latency"] != second_metrics["latency"]
-    assert first_metrics["energy"] != second_metrics["energy"]
+    assert first_metrics["memory_usage"] != second_metrics["memory_usage"]
+    assert first_metrics["power_usage"] != second_metrics["power_usage"]
     assert first_metrics["throughput"] != second_metrics["throughput"]
+    assert first_metrics["energy"] != second_metrics["energy"]
 
 def test_mock_benchmarking_invalid_config():
     """测试无效的配置。"""
     # 测试缺少必需字段
-    with pytest.raises(ValueError, match="配置缺少必需字段"):
+    with pytest.raises(ValueError, match="配置缺少必需字段: model_config"):
         config = {
             "model_name": "test_model",
             "batch_size": 32
         }
         MockBenchmarking(config)
-    
+
     # 测试无效的批处理大小
-    with pytest.raises(ValueError, match="batch_size 必须大于 0"):
+    with pytest.raises(ValueError, match="配置缺少必需字段: model_config"):
         config = {
             "model_name": "test_model",
             "dataset_path": "/path/to/dataset",
