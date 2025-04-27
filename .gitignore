@@ -6,6 +6,11 @@ __pycache__/
 # Plot files
 plot.png
 *.plot.png
+*.png
+output/*.png
+tests/*.png
+**/output/*.png
+**/tests/*.png
 
 # C extensions
 *.so
