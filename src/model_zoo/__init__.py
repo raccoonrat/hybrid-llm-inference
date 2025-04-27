@@ -1,25 +1,35 @@
 # hybrid-llm-inference/src/model_zoo/__init__.py
-from .falcon import LocalFalcon, APIFalcon
-from .llama3 import LocalLlama3, APILlama3
-from .mistral import LocalMistral, APIMistral
+"""模型库模块。"""
 
-def get_model(model_name, mode, config):
-    """
-    Factory function to get model instance.
+from typing import Dict, Type
+import logging
+from .base_model import BaseModel
+from .mock_model import MockModel
+
+logger = logging.getLogger(__name__)
+
+# 注册所有可用的模型
+MODELS: Dict[str, Type[BaseModel]] = {
+    "mock": MockModel,
+}
+
+def get_model(model_name: str, model_path: str) -> BaseModel:
+    """获取模型实例。
     
     Args:
-        model_name (str): Model name (e.g., 'falcon', 'llama3', 'mistral').
-        mode (str): 'local' or 'api'.
-        config (dict): Model configuration.
-    
+        model_name: 模型名称
+        model_path: 模型路径
+        
     Returns:
-        BaseModel: Model instance.
+        BaseModel: 模型实例
     """
-    model_map = {
-        "falcon": {"local": LocalFalcon, "api": APIFalcon},
-        "llama3": {"local": LocalLlama3, "api": APILlama3},
-        "mistral": {"local": LocalMistral, "api": APIMistral}
-    }
-    if model_name not in model_map or mode not in model_map[model_name]:
-        raise ValueError(f"Unsupported model {model_name} or mode {mode}")
-    return model_map[model_name][mode](config.get("model_name"), config)
+    if model_name not in MODELS:
+        raise ValueError(f"不支持的模型: {model_name}")
+        
+    try:
+        return MODELS[model_name](model_path)
+    except Exception as e:
+        logger.error(f"加载模型失败: {str(e)}")
+        raise
+
+__all__ = ["BaseModel", "MockModel", "get_model"]

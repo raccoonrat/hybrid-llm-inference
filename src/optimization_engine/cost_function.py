@@ -1,44 +1,51 @@
 # hybrid-llm-inference/src/optimization_engine/cost_function.py
+from typing import Dict, Any, Callable
 from toolbox.logger import get_logger
-from hardware_profiling import get_profiler
+
+logger = get_logger(__name__)
 
 class CostFunction:
-    def __init__(self, lambda_param=0.5, hardware_config=None):
-        """
-        Initialize CostFunction for computing U(m, n, s) = λE + (1-λ)R.
-        
-        Args:
-            lambda_param (float): Tradeoff parameter (0 <= λ <= 1).
-            hardware_config (dict): Hardware configuration for profiling.
-        """
-        self.lambda_param = lambda_param
-        self.hardware_config = hardware_config or {}
-        self.logger = get_logger(__name__)
-        self.profilers = {key: get_profiler(key, cfg) for key, cfg in self.hardware_config.items()}
+    """成本函数类。"""
+    
+    def __init__(self, config: Dict[str, Any]) -> None:
+        """初始化成本函数。
 
-    def compute(self, task, input_tokens, output_tokens, system):
-        """
-        Compute cost for a task on a specific system.
-        
         Args:
-            task (callable): Task to measure (e.g., LLM inference).
-            input_tokens (int): Number of input tokens.
-            output_tokens (int): Number of output tokens.
-            system (str): Hardware system (e.g., 'm1_pro', 'a100').
-        
+            config: 配置字典，包含以下字段：
+                - model_config: 模型配置
+                - measure_fn: 测量函数
+        """
+        self.model_config = config.get("model_config", {})
+        self.measure_fn = config.get("measure_fn")
+        self._validate_config()
+    
+    def _validate_config(self) -> None:
+        """验证配置。"""
+        if not isinstance(self.model_config, dict):
+            raise ValueError("model_config 必须是字典")
+        if not self.model_config:
+            raise ValueError("model_config 不能为空")
+        if not callable(self.measure_fn):
+            raise ValueError("measure_fn 必须是可调用对象")
+    
+    def calculate(self, input_tokens: int, output_tokens: int) -> float:
+        """计算成本。
+
+        Args:
+            input_tokens: 输入令牌数
+            output_tokens: 输出令牌数
+
         Returns:
-            float: Cost value (λE + (1-λ)R).
+            成本值
         """
-        if system not in self.profilers:
-            self.logger.error(f"System {system} not supported")
-            raise ValueError(f"System {system} not supported")
-
-        profiler = self.profilers[system]
-        metrics = profiler.measure(task, input_tokens, output_tokens)
-        
-        energy = metrics["energy"]  # Joules
-        runtime = metrics["runtime"]  # Seconds
-        cost = self.lambda_param * energy + (1 - self.lambda_param) * runtime
-        
-        self.logger.debug(f"Cost for {system}: {cost} (E={energy}, R={runtime}, λ={self.lambda_param})")
-        return cost
+        try:
+            # 使用测量函数获取性能指标
+            metrics = self.measure_fn(input_tokens, output_tokens)
+            
+            # 计算成本
+            cost = metrics["energy"] + metrics["runtime"] * 0.1
+            
+            return cost
+        except Exception as e:
+            logger.error(f"成本计算失败: {str(e)}")
+            raise

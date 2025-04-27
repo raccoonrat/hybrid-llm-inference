@@ -1,43 +1,103 @@
 # hybrid-llm-inference/src/hardware_profiling/base_profiler.py
+"""硬件性能分析基类。"""
+
+import os
+import psutil
+import platform
 from abc import ABC, abstractmethod
-from toolbox.logger import get_logger
-import time
+if os.getenv('TEST_MODE') != '1':
+    import torch
+from typing import Dict, Any, Optional, List
+from src.toolbox.logger import get_logger
+
+logger = get_logger(__name__)
 
 class HardwareProfiler(ABC):
-    def __init__(self, config):
-        """
-        Initialize HardwareProfiler base class.
+    """硬件性能分析基类。"""
+    
+    def __init__(self):
+        """初始化硬件性能分析器。"""
+        self.logger = logger
+        self.system_info = self._get_system_info()
+        self.metrics = {}
         
-        Args:
-            config (dict): Hardware configuration.
-        """
-        self.config = config
-        self.logger = get_logger(__name__)
-
-    @abstractmethod
-    def measure(self, task, input_tokens, output_tokens):
-        """
-        Measure energy and performance for a task.
-        
-        Args:
-            task (callable): Task to measure (e.g., LLM inference).
-            input_tokens (int): Number of input tokens.
-            output_tokens (int): Number of output tokens.
+    def _get_system_info(self) -> Dict[str, Any]:
+        """获取系统信息。
         
         Returns:
-            dict: Metrics including energy (Joules), runtime (sec), throughput (tokens/sec),
-                  energy_per_token (Joules/token).
+            Dict[str, Any]: 系统信息字典
+        """
+        info = {
+            "os": platform.system(),
+            "os_version": platform.version(),
+            "cpu_count": psutil.cpu_count(),
+            "memory_total": psutil.virtual_memory().total,
+            "memory_available": psutil.virtual_memory().available
+        }
+        
+        if os.getenv('TEST_MODE') != '1':
+            if torch.cuda.is_available():
+                info.update({
+                    "cuda_available": True,
+                    "cuda_device_count": torch.cuda.device_count(),
+                    "cuda_device_name": torch.cuda.get_device_name(0),
+                    "cuda_device_memory": torch.cuda.get_device_properties(0).total_memory
+                })
+            else:
+                info.update({
+                    "cuda_available": False
+                })
+        else:
+            info.update({
+                "cuda_available": True,
+                "cuda_device_count": 1,
+                "cuda_device_name": "MOCK GPU",
+                "cuda_device_memory": 1024 * 1024 * 1024  # 1GB
+            })
+            
+        return info
+        
+    @abstractmethod
+    def profile_memory(self) -> Dict[str, float]:
+        """分析内存使用情况。
+        
+        Returns:
+            Dict[str, float]: 内存使用指标
         """
         pass
-
-    def _compute_metrics(self, energy, runtime, total_tokens):
-        """Compute standard metrics."""
-        throughput = total_tokens / runtime if runtime > 0 else 0
-        energy_per_token = energy / total_tokens if total_tokens > 0 else 0
+        
+    @abstractmethod
+    def profile_cpu(self) -> Dict[str, float]:
+        """分析 CPU 使用情况。
+        
+        Returns:
+            Dict[str, float]: CPU 使用指标
+        """
+        pass
+        
+    @abstractmethod
+    def profile_gpu(self) -> Dict[str, float]:
+        """分析 GPU 使用情况。
+        
+        Returns:
+            Dict[str, float]: GPU 使用指标
+        """
+        pass
+        
+    def get_metrics(self) -> Dict[str, Any]:
+        """获取性能指标。
+        
+        Returns:
+            Dict[str, Any]: 性能指标字典
+        """
         return {
-            "energy": energy,
-            "runtime": runtime,
-            "throughput": throughput,
-            "energy_per_token": energy_per_token
+            "system_info": self.system_info,
+            "memory": self.profile_memory(),
+            "cpu": self.profile_cpu(),
+            "gpu": self.profile_gpu()
         }
+        
+    def reset_metrics(self) -> None:
+        """重置性能指标。"""
+        self.metrics = {}
 

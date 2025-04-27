@@ -1,69 +1,108 @@
 # hybrid-llm-inference/src/scheduling/token_based_scheduler.py
+"""基于令牌的调度器模块。"""
+
+import os
+from typing import Dict, Any, List, Optional
 from toolbox.logger import get_logger
+from .base_scheduler import BaseScheduler
 
-class TokenBasedScheduler:
-    def __init__(self, thresholds, config):
-        """
-        Initialize TokenBasedScheduler for token-based task scheduling.
-        
-        Args:
-            thresholds (dict): Scheduling thresholds {"T_in": int, "T_out": int}.
-            config (dict): Scheduler configuration with hardware mapping.
-        """
-        self.logger = get_logger(__name__)
-        if not thresholds or "T_in" not in thresholds or "T_out" not in thresholds:
-            self.logger.error("Invalid thresholds provided")
-            raise ValueError("Thresholds must include T_in and T_out")
-        if thresholds["T_in"] <= 0 or thresholds["T_out"] <= 0:
-            self.logger.error("Thresholds must be positive")
-            raise ValueError("Thresholds must be positive")
-        
-        self.input_threshold = thresholds.get("T_in", 32)
-        self.output_threshold = thresholds.get("T_out", 32)
-        self.hardware_map = config.get("hardware_map", {})
-        if not self.hardware_map:
-            self.logger.error("Hardware map is empty")
-            raise ValueError("Hardware map cannot be empty")
-        
-        self.logger.info(f"Initialized scheduler with T_in={self.input_threshold}, T_out={self.output_threshold}")
+logger = get_logger(__name__)
 
-    def schedule(self, token_data):
-        """
-        Schedule tasks based on token counts.
-        
+class TokenBasedScheduler(BaseScheduler):
+    """基于令牌的调度器。"""
+    
+    def __init__(self, config: Dict[str, Any]) -> None:
+        """初始化基于令牌的调度器。
+
         Args:
-            token_data (list): List of queries with token counts 
-                              [{"prompt": str, "response": str, "input_tokens": int, "output_tokens": int}, ...].
+            config: 配置字典，包含以下字段：
+                - token_threshold: 令牌阈值
+                - hardware_config: 硬件配置
+                - model_config: 模型配置
+        """
+        # 初始化基本属性
+        self.token_threshold = config.get("token_threshold", 1000)
+        self.hardware_config = config.get("hardware_config", {})
+        self.model_config = config.get("model_config", {})
+        self.initialized = False
+
+        # 验证配置
+        self._validate_config()
         
+        # 调用父类构造函数
+        super().__init__(config)
+        
+        # 初始化调度器
+        self._init_scheduler()
+    
+    def _validate_config(self) -> None:
+        """验证配置。"""
+        if not isinstance(self.token_threshold, (int, float)) or self.token_threshold <= 0:
+            raise ValueError("令牌阈值必须是正数")
+        if not isinstance(self.hardware_config, dict):
+            raise ValueError("hardware_config 必须是字典")
+        if not isinstance(self.model_config, dict):
+            raise ValueError("model_config 必须是字典")
+    
+    def _init_scheduler(self) -> None:
+        """初始化调度器。"""
+        if self.initialized:
+            return
+            
+        self.initialized = True
+        logger.info("基于令牌的调度器初始化完成")
+    
+    def schedule(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """调度任务。
+
+        Args:
+            tasks: 任务列表，每个任务包含以下字段：
+                - tokens: 令牌数量
+
         Returns:
-            list: Allocations [{"query": dict, "hardware": str}].
+            调度后的任务列表，每个任务包含以下字段：
+                - tokens: 令牌数量
+                - model: 分配的模型
+                - hardware: 分配的硬件
         """
-        if not token_data:
-            self.logger.warning("No token data provided, returning empty allocations")
+        if not self.initialized:
+            raise RuntimeError("调度器未初始化")
+        if not tasks:
             return []
-        
-        allocations = []
-        for query in token_data:
-            if "input_tokens" not in query or "output_tokens" not in query:
-                self.logger.warning(f"Skipping invalid query: {query}")
-                continue
-            
-            input_tokens = query.get("input_tokens", 0)
-            output_tokens = query.get("output_tokens", 0)
-            
-            # Assign hardware based on thresholds
-            if input_tokens <= self.input_threshold and output_tokens <= self.output_threshold:
-                # Prefer low-power hardware for small tasks
-                hardware = self.hardware_map.get("m1_pro", "m1_pro")
-                if input_tokens <= 16 and output_tokens <= 16:
-                    hardware = self.hardware_map.get("rtx4050", hardware)  # RTX 4050 for very small tasks
-            else:
-                # Prefer high-performance hardware for large tasks
-                hardware = self.hardware_map.get("a800", self.hardware_map.get("a100", "a100"))
+        if not isinstance(tasks, list):
+            raise TypeError("tasks 必须是列表类型")
+
+        scheduled_tasks = []
+        for task in tasks:
+            if task is None:
+                raise ValueError("任务不能为 None")
+            if not isinstance(task, dict):
+                raise TypeError("任务必须是字典类型")
+            if "tokens" not in task:
+                raise ValueError("任务必须包含 tokens 字段")
                 
-            allocation = {"query": query, "hardware": hardware}
-            allocations.append(allocation)
-            self.logger.debug(f"Allocated query (input={input_tokens}, output={output_tokens}) to {hardware}")
-        
-        self.logger.info(f"Scheduled {len(allocations)} tasks")
-        return allocations
+            tokens = task["tokens"]
+            if not isinstance(tokens, (int, float)):
+                raise ValueError("令牌数量必须是数字")
+            if tokens < 0:
+                raise ValueError("令牌数量不能为负数")
+                
+            if tokens <= self.token_threshold:
+                model = "tinyllama"
+                hardware = "apple_m1_pro"
+            else:
+                model = "llama3"
+                hardware = "rtx4050"
+            
+            scheduled_tasks.append({
+                "tokens": tokens,
+                "model": model,
+                "hardware": hardware
+            })
+
+        return scheduled_tasks
+
+    def cleanup(self) -> None:
+        """清理资源。"""
+        self.initialized = False
+        logger.info("基于令牌的调度器清理完成")

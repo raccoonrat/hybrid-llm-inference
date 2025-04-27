@@ -1,0 +1,12 @@
+models:
+  tinyllama:
+    type: "local"
+    path: "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\TinyLlama-1.1B-Chat-v1.0"
+    tokenizer: "auto"
+    max_length: 2048
+    batch_size: 1
+    device: "cuda"
+    precision: "float16"
+    quantization: "none"
+    cache_dir: "data/models"
+    trust_remote_code: true 

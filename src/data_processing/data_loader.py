@@ -1,49 +1,54 @@
 # hybrid-llm-inference/src/data_processing/data_loader.py
 import json
-import pandas as pd
+import logging
 from pathlib import Path
-from toolbox.logger import get_logger
+from typing import List, Dict, Any, Union
 
 class DataLoader:
-    def __init__(self, dataset_path, models=None):
-        """
-        Initialize DataLoader for Alpaca dataset.
+    """数据加载器类。"""
+    
+    def __init__(self):
+        """初始化数据加载器。"""
+        self.logger = logging.getLogger(__name__)
+        
+    def load(self, file_path: Union[str, Path]) -> List[Dict[str, Any]]:
+        """加载数据文件。
         
         Args:
-            dataset_path (str): Path to Alpaca JSON file.
-            models (dict): Dictionary of model instances from ModelZoo for tokenization.
+            file_path: 数据文件路径
+            
+        Returns:
+            List[Dict[str, Any]]: 加载的数据列表
+            
+        Raises:
+            FileNotFoundError: 文件不存在
+            json.JSONDecodeError: JSON解析错误
         """
-        self.dataset_path = Path(dataset_path)
-        self.models = models or {}
-        self.logger = get_logger(__name__)
-        self.data = None
-
-    def load(self):
-        """Load and clean Alpaca dataset."""
-        if not self.dataset_path.exists():
-            self.logger.error(f"Dataset not found at {self.dataset_path}")
-            raise FileNotFoundError(f"Dataset not found at {self.dataset_path}")
-
         try:
-            with open(self.dataset_path, 'r', encoding='utf-8') as f:
-                raw_data = json.load(f)
+            file_path = Path(file_path)
+            if not file_path.exists():
+                raise FileNotFoundError(f"文件不存在：{file_path}")
+                
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+            if not isinstance(data, list):
+                data = [data]
+                
+            # 验证数据格式
+            for item in data:
+                if not isinstance(item, dict):
+                    raise ValueError(f"数据项必须是字典类型：{item}")
+                    
+            self.logger.info(f"成功加载{len(data)}条数据")
+            return data
+            
         except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse JSON: {e}")
+            self.logger.error(f"JSON解析错误：{e}")
             raise
-
-        # Clean and format data
-        cleaned_data = []
-        for item in raw_data:
-            prompt = item.get('prompt', '').strip()
-            response = item.get('response', '').strip()
-            if not prompt or len(prompt) > 10000:  # Skip empty or overly long prompts
-                self.logger.warning(f"Skipping invalid prompt: {prompt[:50]}...")
-                continue
-            cleaned_data.append({'prompt': prompt, 'response': response})
-
-        self.data = pd.DataFrame(cleaned_data)
-        self.logger.info(f"Loaded {len(self.data)} prompts from {self.dataset_path}")
-        return self.data
+        except Exception as e:
+            self.logger.error(f"加载数据时发生错误：{e}")
+            raise
 
     def get_data(self):
         """Return loaded data."""
