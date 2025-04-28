@@ -83,6 +83,15 @@ class TaskAllocator(BaseAllocator):
         for hardware_name, hardware_info in self.hardware_config.items():
             if not isinstance(hardware_info, dict):
                 raise ValueError(f"硬件 {hardware_name} 的配置必须是字典")
+            
+            # 设置默认值
+            if "device_type" not in hardware_info:
+                hardware_info["device_type"] = "gpu"
+            if "idle_power" not in hardware_info:
+                hardware_info["idle_power"] = 15.0
+            if "sample_interval" not in hardware_info:
+                hardware_info["sample_interval"] = 200
+            
             required_fields = ["device_type", "idle_power", "sample_interval"]
             for field in required_fields:
                 if field not in hardware_info:

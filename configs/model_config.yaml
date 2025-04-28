@@ -2,6 +2,7 @@
 models:
   llama3:
     model_name: meta-llama/Llama-3-8B
+    model_path: "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\llama3"
     mode: local
     max_length: 512
     mixed_precision: fp16
