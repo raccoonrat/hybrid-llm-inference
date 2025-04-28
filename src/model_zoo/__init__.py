@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # 注册所有可用的模型
 MODELS: Dict[str, Type[BaseModel]] = {
     "mock": MockModel,
-    "tinyllama": TinyLlama
+    "TinyLlama-1.1B-Chat-v1.0": TinyLlama
 }
 
 def get_model(model_name: str, model_path: Union[str, Dict[str, Any]]) -> BaseModel:

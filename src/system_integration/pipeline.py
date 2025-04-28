@@ -6,7 +6,8 @@ import pickle
 import yaml
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
+import pandas as pd
 
 from ..dataset_manager.alpaca_loader import AlpacaLoader
 from src.data_processing.token_processing import TokenProcessing
@@ -29,7 +30,7 @@ class SystemPipeline:
     
     def __init__(self, model_name: str, data_path: str, output_dir: str,
                  model_path: str, distribution_path: Optional[str] = None,
-                 mode: str = "hybrid", config_dir: Optional[str] = None):
+                 mode: str = "hybrid", config_dir: Optional[Union[str, Dict[str, Any]]] = None):
         """初始化系统管道。
         
         Args:
@@ -39,15 +40,27 @@ class SystemPipeline:
             model_path: 模型路径（必需）
             distribution_path: 分布数据路径（可选）
             mode: 运行模式，默认为"hybrid"
-            config_dir: 配置目录路径（可选）
-        """
-        if not model_name:
-            raise ValueError("model_name 不能为空")
-        if not model_path:
-            raise ValueError("model_path 不能为空")
-        if not os.path.exists(model_path):
-            raise ValueError(f"模型路径不存在: {model_path}")
+            config_dir: 配置目录路径或配置字典（可选）
             
+        Raises:
+            ValueError: 当必需参数为空或无效时
+            FileNotFoundError: 当必需的文件或目录不存在时
+            RuntimeError: 当初始化过程中发生错误时
+        """
+        # 验证必需参数
+        if not all([model_name, data_path, output_dir, model_path]):
+            raise ValueError("必需参数不能为空")
+            
+        # 验证文件路径
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"模型路径不存在: {model_path}")
+        if not os.path.exists(data_path):
+            raise FileNotFoundError(f"数据路径不存在: {data_path}")
+            
+        # 确保输出目录存在
+        os.makedirs(output_dir, exist_ok=True)
+            
+        # 初始化基本属性
         self.model_name = model_name
         self.model_path = model_path
         self.data_path = data_path
@@ -56,19 +69,191 @@ class SystemPipeline:
         self.mode = mode
         self.config_dir = config_dir
         
-        # 初始化配置
-        self.model_config = None
-        self.hardware_config = None
-        self.scheduler_config = None
+        # 初始化状态标志
+        self.initialized = False
+        self.components = {}
         
-        # 初始化组件
-        self._init_components()
+        try:
+            # 加载配置
+            self._load_configurations()
+            
+            # 初始化组件
+            self._init_components()
+            
+            # 初始化报告生成器
+            self._init_report_generator()
+            
+            self.initialized = True
+            logger.info("系统管道初始化完成")
+            
+        except Exception as e:
+            logger.error(f"初始化系统管道时出错: {str(e)}")
+            self.cleanup()
+            raise RuntimeError(f"初始化失败: {str(e)}")
+    
+    def _load_configurations(self) -> None:
+        """加载和验证配置。
         
-        # 初始化报告生成器
-        from src.benchmarking.report_generator import ReportGenerator
-        self.report_generator = ReportGenerator(self.output_dir)
+        Raises:
+            ValueError: 当配置无效时
+        """
+        # 加载基础配置
+        base_config = self._load_config("base_config") if isinstance(self.config_dir, str) else {}
         
-        logger.info("系统管道初始化完成")
+        # 合并配置
+        if isinstance(self.config_dir, dict):
+            self.config = self.config_dir
+        else:
+            self.config = {
+                "model": {
+                    "model_name": self.model_name,
+                    "model_path": str(self.model_path),
+                    "mode": self.mode,
+                    "max_length": 512,
+                    "batch_size": 1,
+                    "device": "cuda",
+                    "dtype": "float32"
+                },
+                "scheduler": {
+                    "scheduler_type": "token_based",
+                    "max_batch_size": 4,
+                    "max_queue_size": 100,
+                    "max_wait_time": 1.0
+                },
+                "hardware": {
+                    "rtx4050": {
+                        "device_type": "gpu",
+                        "device_id": 0,
+                        "idle_power": 15.0,
+                        "sample_interval": 200
+                    }
+                }
+            }
+            self.config.update(base_config)
+        
+        # 验证配置
+        self._validate_config()
+    
+    def _validate_config(self) -> None:
+        """验证配置的完整性和有效性。
+        
+        Raises:
+            ValueError: 当配置无效时
+        """
+        required_sections = ["model", "scheduler", "hardware"]
+        for section in required_sections:
+            if section not in self.config:
+                raise ValueError(f"配置缺少必需部分: {section}")
+        
+        # 验证模型配置
+        model_config = self.config["model"]
+        required_model_fields = ["batch_size"]  # 只保留必需的字段
+        for field in required_model_fields:
+            if field not in model_config:
+                raise ValueError(f"模型配置缺少必需字段: {field}")
+        
+        # 验证调度器配置
+        scheduler_config = self.config["scheduler"]
+        required_scheduler_fields = ["scheduler_type", "max_batch_size", "max_queue_size"]
+        for field in required_scheduler_fields:
+            if field not in scheduler_config:
+                raise ValueError(f"调度器配置缺少必需字段: {field}")
+        
+        # 验证硬件配置
+        hardware_config = self.config["hardware"]
+        if not isinstance(hardware_config, dict) or not hardware_config:
+            raise ValueError("硬件配置无效")
+    
+    def _init_components(self) -> None:
+        """初始化系统组件。
+        
+        按照依赖关系顺序初始化各个组件。
+        
+        Raises:
+            RuntimeError: 当组件初始化失败时
+        """
+        try:
+            # 1. 初始化基础组件
+            self.hybrid_inference = HybridInference(
+                config={
+                    "model_name": self.model_name,
+                    "model_path": self.model_path,
+                    "device": self.config["model"].get("device", "cuda"),
+                    "mode": self.config["model"].get("mode", "local"),
+                    "batch_size": self.config["model"].get("batch_size", 1),
+                    "dtype": self.config["model"].get("dtype", "float32"),
+                    "scheduler_config": {
+                        "hardware_config": self.config["hardware"]
+                    }
+                },
+                test_mode=os.environ.get("TEST_MODE", "0") == "1"
+            )
+            self.components["hybrid_inference"] = self.hybrid_inference
+            
+            # 2. 初始化令牌处理器
+            self.token_processor = TokenProcessing(
+                model_name=self.model_name,
+                model_config=self.config["model"]
+            )
+            self.components["token_processor"] = self.token_processor
+            
+            # 3. 初始化调度器
+            self.scheduler = TokenBasedScheduler(self.config["scheduler"])
+            self.components["scheduler"] = self.scheduler
+            
+            # 4. 初始化性能分析器
+            if "rtx4050" in self.config["hardware"]:
+                self.profiler = get_profiler("rtx4050", self.config["hardware"]["rtx4050"])
+            else:
+                self.profiler = None
+            self.components["profiler"] = self.profiler
+            
+            # 5. 初始化基准测试
+            benchmarking_config = {
+                "model_name": self.config["model"]["model_name"],
+                "model_config": self.config["model"],
+                "batch_size": self.config["scheduler"]["max_batch_size"],
+                "dataset_path": self.data_path,
+                "scheduler_config": self.config["scheduler"],
+                "hardware_config": self.config["hardware"],
+                "model_path": self.config["model"]["model_path"],
+                "output_dir": self.output_dir
+            }
+            self.benchmarking = SystemBenchmarking(benchmarking_config)
+            self.components["benchmarking"] = self.benchmarking
+            
+            logger.info("系统管道组件初始化完成")
+            
+        except Exception as e:
+            logger.error(f"初始化组件时出错: {str(e)}")
+            self.cleanup()
+            raise RuntimeError(f"组件初始化失败: {str(e)}")
+    
+    def _init_report_generator(self) -> None:
+        """初始化报告生成器。"""
+        try:
+            from src.benchmarking.report_generator import ReportGenerator
+            self.report_generator = ReportGenerator(self.output_dir)
+            self.components["report_generator"] = self.report_generator
+        except Exception as e:
+            logger.error(f"初始化报告生成器时出错: {str(e)}")
+            raise
+    
+    def cleanup(self) -> None:
+        """清理资源。"""
+        if hasattr(self, 'profiler') and self.profiler is not None:
+            self.profiler.cleanup()
+        
+        # 遍历所有组件并清理
+        for component_name, component in self.components.items():
+            if component is not None and hasattr(component, 'cleanup'):
+                try:
+                    component.cleanup()
+                except Exception as e:
+                    logger.warning(f"清理组件 {component_name} 时出错: {str(e)}")
+        
+        # 重置状态
+        self.initialized = False
     
     def _load_config(self, config_name: str) -> Dict[str, Any]:
         """从配置目录加载配置文件。
@@ -93,144 +278,6 @@ class SystemPipeline:
         with open(config_path, "r") as f:
             return yaml.safe_load(f)
     
-    def _init_components(self) -> None:
-        """初始化组件。"""
-        try:
-            # 加载分布数据
-            if self.distribution_path and os.path.exists(self.distribution_path):
-                with open(self.distribution_path, "rb") as f:
-                    self.distribution = pickle.load(f)
-            else:
-                # 使用默认分布
-                self.distribution = {
-                    "input_distribution": {10: 100, 20: 50},
-                    "output_distribution": {30: 80, 40: 70}
-                }
-                if self.distribution_path:
-                    # 保存默认分布
-                    os.makedirs(os.path.dirname(self.distribution_path), exist_ok=True)
-                    with open(self.distribution_path, "wb") as f:
-                        pickle.dump(self.distribution, f)
-            
-            # 加载配置文件
-            self.model_config = self._load_config("model_config")
-            self.hardware_config = self._load_config("hardware_config")
-            self.scheduler_config = self._load_config("scheduler_config")
-            
-            # 如果没有配置文件，使用默认配置
-            if not self.model_config or "models" not in self.model_config:
-                self.model_config = {
-                    "models": {
-                        self.model_name: {
-                            "model_name": self.model_name,
-                            "model_path": str(self.model_path),
-                            "mode": self.mode,
-                            "max_length": 512,
-                            "batch_size": 1,
-                            "device": "cuda",
-                            "dtype": "float32"
-                        }
-                    }
-                }
-            elif self.model_name not in self.model_config["models"]:
-                self.model_config["models"][self.model_name] = {
-                    "model_name": self.model_name,
-                    "model_path": str(self.model_path),
-                    "mode": self.mode,
-                    "max_length": 512,
-                    "batch_size": 1,
-                    "device": "cuda",
-                    "dtype": "float32"
-                }
-            else:
-                model_config = self.model_config["models"][self.model_name]
-                if "batch_size" not in model_config:
-                    model_config["batch_size"] = 1
-                if "device" not in model_config:
-                    model_config["device"] = "cuda"
-                if "dtype" not in model_config:
-                    model_config["dtype"] = "float32"
-                model_config["model_path"] = str(self.model_path)
-            
-            if not self.hardware_config:
-                self.hardware_config = {
-                    "m1_pro": {"type": "cpu_gpu", "idle_power": 10.0},
-                    "a100": {"type": "gpu", "device_id": 0}
-                }
-            
-            if not self.scheduler_config:
-                self.scheduler_config = {
-                    "scheduler_type": "token_based",
-                    "max_batch_size": 4,
-                    "max_queue_size": 100,
-                    "max_wait_time": 1.0,
-                    "scheduling_strategy": "token_based"
-                }
-            
-            # 初始化硬件分析器
-            self.profiler = get_profiler("rtx4050", {
-                "device_id": 0,
-                "idle_power": 15.0,
-                "sample_interval": 200
-            })
-            
-            # 初始化混合推理器
-            model_config = {
-                "model_name": self.model_name,
-                "model_path": str(self.model_path),
-                "device": self.model_config["models"][self.model_name].get("device", "cuda"),
-                "mode": self.mode,
-                "dtype": "float32",
-                "batch_size": self.model_config["models"][self.model_name]["batch_size"]
-            }
-            
-            self.hybrid_inference = HybridInference(model_config)
-            
-            # 初始化其他组件
-            config = {
-                "dataset_path": str(self.data_path),
-                "output_dir": str(self.output_dir),
-                "model_config": {
-                    "model_name": self.model_name,
-                    "model_path": str(self.model_path),
-                    "batch_size": self.model_config["models"][self.model_name]["batch_size"],
-                    "mode": self.mode
-                },
-                "hardware_config": self.hardware_config,
-                "scheduler_config": self.scheduler_config,
-                "batch_size": self.model_config["models"][self.model_name]["batch_size"]
-            }
-            
-            self.config_manager = ConfigManager(config)
-            self.token_processor = TokenProcessing(
-                model_name=self.model_name,
-                model_config=self.model_config["models"][self.model_name]
-            )
-            self.token_processor.initialize()
-            self.scheduler = TokenBasedScheduler(self.scheduler_config)
-            self.allocator = TaskAllocator({
-                "hardware_config": self.hardware_config,
-                "model_config": self.model_config,
-                "scheduler_config": self.scheduler_config
-            })
-            
-            self.benchmarking = SystemBenchmarking({
-                "model_path": self.model_path,
-                "model_name": self.model_name,
-                "batch_size": self.model_config["models"][self.model_name]["batch_size"],
-                "dataset_path": str(self.data_path),
-                "output_dir": str(self.output_dir),
-                "scheduler_config": self.scheduler_config,
-                "hardware_config": self.hardware_config,
-                "model_config": self.model_config
-            })
-            
-            logger.info("系统管道组件初始化完成")
-            
-        except Exception as e:
-            logger.error(f"初始化组件时出错: {e}")
-            raise
-            
     def _measure_performance(self, input_tokens: int, output_tokens: int, device_id: str) -> Dict[str, float]:
         """测量给定参数下的性能。
         
@@ -291,6 +338,11 @@ class SystemPipeline:
             # 处理数据
             processed_data = self.token_processor.process_tokens(data)
             
+            # 添加令牌计数到处理后的数据
+            for item in processed_data:
+                item["input_tokens"] = len(item.get("input", "").split())
+                item["output_tokens"] = len(item.get("output", "").split())
+            
             # 创建优化器
             optimizer = ThresholdOptimizer(
                 search_range=(0.1, 0.9),
@@ -313,8 +365,8 @@ class SystemPipeline:
             # 分析权衡
             analyzer = TradeoffAnalyzer(
                 token_distribution_path=str(self.distribution_path),
-                hardware_config=self.hardware_config,
-                model_config=self.model_config,
+                hardware_config=self.config["hardware"],
+                model_config=self.config["model"],
                 output_dir=str(self.output_dir)
             )
             analyzer.analyze(self.model_name)
@@ -345,7 +397,7 @@ class SystemPipeline:
                 results.append(result)
             
             # 获取模型配置
-            model_config = self.model_config.get("models", {}).get(self.model_name, {})
+            model_config = self.config["model"]
             model_device = model_config.get("device", "cuda")
             model_dtype = model_config.get("dtype", "float32")
             
@@ -405,6 +457,10 @@ class SystemPipeline:
             # 生成报告
             report_path = self.report_generator.generate_report(metrics)
             
+            # 保存处理后的数据
+            processed_df = pd.DataFrame(processed_data)
+            processed_df.to_csv(Path(self.output_dir) / "processed_data.csv", index=False)
+            
             return {
                 "results": results,
                 "thresholds": thresholds,
@@ -424,7 +480,97 @@ class SystemPipeline:
             logger.error(f"运行系统管道时出错: {str(e)}")
             raise
             
+    def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """处理单个任务。
+
+        Args:
+            task: 任务字典，包含以下字段：
+                - input: 输入文本
+                - max_length: 最大生成长度（可选）
+                - additional_config: 额外的配置参数（可选）
+
+        Returns:
+            Dict[str, Any]: 处理结果，包含生成结果和性能指标
+        """
+        try:
+            if not self.initialized:
+                raise RuntimeError("系统管道未初始化")
+
+            # 预处理任务数据
+            processed_task = self.token_processor.process_tokens([task])[0]
+            # 添加 token 计数信息
+            processed_task["input_token_count"] = len(processed_task.get("input", "").split())
+            processed_task["output_token_count"] = len(processed_task.get("output", "").split())
+
+            # 使用阈值优化器
+            optimizer = ThresholdOptimizer(
+                search_range=(0.1, 0.9),
+                num_points=10,
+                device_id="cuda:0",
+                measure_fn=self._measure_performance
+            )
+            thresholds = optimizer.optimize(processed_task)
+
+            # 分析性能权衡
+            if self.distribution_path:
+                analyzer = TradeoffAnalyzer(
+                    token_distribution_path=str(self.distribution_path),
+                    hardware_config=self.config["hardware"],
+                    model_config=self.config["model"],
+                    output_dir=str(self.output_dir)
+                )
+                analyzer.analyze(self.model_name)
+
+            # 调度任务
+            scheduled_tasks = self.scheduler.schedule([processed_task])
+
+            # 使用混合推理处理任务
+            result = self.hybrid_inference.generate(
+                task["input"],
+                task.get("max_length", self.config["model"].get("max_length", 512))
+            )
+
+            # 收集性能指标
+            metrics = {
+                "latency": 0.0,
+                "energy": 0.0,
+                "throughput": 0.0
+            }
+
+            if self.profiler:
+                try:
+                    metrics = self.profiler.get_metrics()
+                except Exception as e:
+                    logger.warning(f"获取性能指标失败: {str(e)}")
+
+            # 运行基准测试
+            benchmark_results = self.benchmarking.run_benchmarks([processed_task])
+            
+            # 合并所有结果
+            return {
+                "result": result,
+                "metrics": metrics,
+                "thresholds": thresholds,
+                "benchmark_results": benchmark_results,
+                "scheduled_info": scheduled_tasks[0] if scheduled_tasks else None
+            }
+
+        except Exception as e:
+            logger.error(f"处理任务时出错: {str(e)}")
+            raise RuntimeError(f"任务处理失败: {str(e)}")
+
     def cleanup(self):
         """清理资源。"""
-        self.profiler.cleanup()
-        self.hybrid_inference.cleanup() 
+        if hasattr(self, 'profiler') and self.profiler is not None:
+            self.profiler.cleanup()
+        
+        # 遍历所有组件并清理
+        for component_name, component in self.components.items():
+            if component is not None and hasattr(component, 'cleanup'):
+                try:
+                    component.cleanup()
+                except Exception as e:
+                    logger.warning(f"清理组件 {component_name} 时出错: {str(e)}")
+        
+        # 重置状态
+        self.initialized = False 

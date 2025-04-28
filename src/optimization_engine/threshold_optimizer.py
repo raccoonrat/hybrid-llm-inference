@@ -96,7 +96,9 @@ class ThresholdOptimizer:
         costs = []
         for threshold in thresholds:
             # 获取输入和输出token数量
-            input_tokens = task.get("input_tokens", [50])[0]
+            input_tokens = task.get("input_tokens", 50)
+            if isinstance(input_tokens, list):
+                input_tokens = input_tokens[0]
             output_tokens = task.get("max_tokens", 100)
             
             # 执行性能测量

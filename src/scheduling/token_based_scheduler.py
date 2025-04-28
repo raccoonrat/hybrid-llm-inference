@@ -24,6 +24,7 @@ class TokenBasedScheduler(BaseScheduler):
         self.token_threshold = config.get("token_threshold", 1000)
         self.hardware_config = config.get("hardware_config", {})
         self.model_config = config.get("model_config", {})
+        self.model_name = self.model_config.get("models", {}).get("tinyllama", {}).get("model_name", "TinyLlama-1.1B-Chat-v1.0")
         self.initialized = False
 
         # 验证配置
@@ -90,33 +91,19 @@ class TokenBasedScheduler(BaseScheduler):
                 raise TypeError("任务必须是字典类型")
             if "decoded_text" not in task or "input_tokens" not in task:
                 raise ValueError("任务必须包含 decoded_text 和 input_tokens 字段")
-                
-            # 计算输入令牌数量
-            input_tokens_count = len(task["input_tokens"])
-            # 估计输出令牌数量（这里简单地假设为输入令牌数量的 1.5 倍）
-            output_tokens_count = int(input_tokens_count * 1.5)
-            total_tokens = input_tokens_count + output_tokens_count
             
-            # 基于总令牌数和硬件配置进行分配
-            if total_tokens <= 1000:
-                model = "tinyllama"
-                hardware = "apple_m1_pro"
-            elif total_tokens <= 5000:
-                model = "tinyllama"
-                hardware = "nvidia_rtx4050"
-            else:
-                model = "llama3"
-                hardware = "nvidia_rtx4090"
+            # 获取输入和输出token数量
+            input_tokens = task["input_tokens"]
+            if isinstance(input_tokens, list):
+                input_tokens = len(input_tokens)
             
-            scheduled_task = task.copy()
-            scheduled_task.update({
-                "input": task["decoded_text"],  # 原始输入文本
-                "input_tokens_count": input_tokens_count,  # 输入令牌数
-                "output_tokens_count": output_tokens_count,  # 输出令牌数
-                "model": model,
-                "hardware": hardware,
-                "estimated_tokens": total_tokens
-            })
+            scheduled_task = {
+                "input": task["decoded_text"],
+                "input_tokens_count": input_tokens,
+                "output_tokens_count": task.get("output_token_count", 0),
+                "model": self.model_name,
+                "hardware": self.hardware_config.get("device_type", "gpu")
+            }
             scheduled_tasks.append(scheduled_task)
 
         return scheduled_tasks

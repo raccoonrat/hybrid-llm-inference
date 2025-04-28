@@ -344,12 +344,28 @@ class RTX4050Profiler(HardwareProfiler):
     def cleanup(self) -> None:
         """清理资源。"""
         try:
+            # 停止测量
+            self.is_measuring = False
+            
+            # 等待监控线程结束
+            if hasattr(self, 'monitor_thread') and self.monitor_thread is not None:
+                self.monitor_thread.join(timeout=1.0)
+            
+            # 关闭 NVML
             if self.nvml_initialized:
-                pynvml.nvmlShutdown()
-                self.nvml_initialized = False
+                try:
+                    pynvml.nvmlShutdown()
+                except Exception as e:
+                    logger.warning(f"关闭 NVML 时出错: {str(e)}")
+                finally:
+                    self.nvml_initialized = False
+            
+            # 重置状态
             self.initialized = False
             self.handle = None
             self.device = None
+            self.monitor_thread = None
+            
             logger.info("RTX 4050 性能分析器清理完成")
         except Exception as e:
             logger.error(f"清理资源失败: {str(e)}")

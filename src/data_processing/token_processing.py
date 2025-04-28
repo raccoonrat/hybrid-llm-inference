@@ -27,6 +27,43 @@ logging.basicConfig(level=logging.INFO)
 
 logger = get_logger(__name__)
 
+class MockTokenizer:
+    """测试模式使用的模拟 tokenizer。"""
+    
+    def __init__(self):
+        """初始化模拟 tokenizer。"""
+        pass
+        
+    def __call__(self, text: str, return_tensors: str = "pt") -> Dict[str, List[int]]:
+        """模拟 tokenizer 的调用。
+
+        Args:
+            text: 输入文本
+            return_tensors: 返回张量类型（在测试模式下被忽略）
+
+        Returns:
+            Dict[str, List[int]]: 模拟的 tokenizer 输出
+        """
+        # 简单地将文本转换为字符的 ASCII 码列表
+        input_ids = [ord(c) for c in text]
+        attention_mask = [1] * len(input_ids)
+        
+        return {
+            "input_ids": [input_ids],
+            "attention_mask": [attention_mask]
+        }
+        
+    def encode(self, text: str) -> List[int]:
+        """模拟 encode 方法。
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            List[int]: 模拟的 token 列表
+        """
+        return [ord(c) for c in text]
+
 class TokenProcessing:
     """令牌处理类，用于处理模型推理过程中的令牌。"""
     
@@ -40,6 +77,7 @@ class TokenProcessing:
         self.model_name = model_name
         self.model_config = model_config
         self.initialized = False
+        self.tokenizer = None
     
     def initialize(self) -> None:
         """初始化令牌处理器。"""
@@ -53,57 +91,67 @@ class TokenProcessing:
     
     def _init_model_specific_processing(self) -> None:
         """初始化模型特定的令牌处理逻辑。"""
-        # 根据模型配置初始化特定的处理逻辑
-        pass
+        try:
+            # 检查测试模式
+            if os.getenv("TEST_MODE") == "1":
+                logger.info("测试模式：使用模拟 tokenizer")
+                self.tokenizer = MockTokenizer()
+                return
+
+            # 构建本地模型路径
+            model_path = os.path.join("models", self.model_name)
+            if not os.path.exists(model_path):
+                raise RuntimeError(f"模型目录不存在: {model_path}")
+
+            # 检查必要的文件
+            required_files = ["tokenizer.json", "tokenizer_config.json"]
+            missing_files = [f for f in required_files if not os.path.exists(os.path.join(model_path, f))]
+            if missing_files:
+                raise RuntimeError(f"模型目录缺少必要文件: {', '.join(missing_files)}")
+
+            from transformers import AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                trust_remote_code=self.model_config.get('trust_remote_code', True),
+                local_files_only=True  # 强制只使用本地文件
+            )
+            logger.info(f"已从本地目录加载 tokenizer: {model_path}")
+            
+        except Exception as e:
+            logger.error(f"初始化tokenizer失败: {str(e)}")
+            raise RuntimeError(f"初始化tokenizer失败: {str(e)}")
     
-    def process_tokens(self, data: List[Dict[str, Any]]) -> pd.DataFrame:
-        """处理令牌序列。
+    def process_tokens(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """处理令牌。
 
         Args:
-            data: 输入数据列表，每个元素是一个字典
+            tasks: 任务列表
 
         Returns:
-            pd.DataFrame: 包含以下列的DataFrame：
-                - decoded_text: 解码后的文本
-                - input_tokens: 输入令牌列表
+            List[Dict[str, Any]]: 处理后的任务列表
         """
-        if not self.initialized:
-            raise RuntimeError("令牌处理器未初始化")
-            
-        # 确保输入是列表
-        if not isinstance(data, list):
-            data = [data]
-            
-        # 处理每个输入
-        processed_data = []
-        for item in data:
-            # 确保item是字典
-            if not isinstance(item, dict):
-                item = {"text": str(item)}
+        try:
+            if not self.initialized:
+                self.initialize()
                 
-            # 获取文本
-            text = str(item.get("text", ""))
-            
-            # 处理令牌
-            tokens = self._apply_model_specific_processing([ord(c) for c in text])
-            
-            # 创建结果字典
-            result = {
-                "decoded_text": text,
-                "input_tokens": tokens
-            }
-            processed_data.append(result)
-            
-        # 创建DataFrame
-        df = pd.DataFrame(processed_data)
-        
-        # 确保必需的列存在
-        if "decoded_text" not in df.columns:
-            df["decoded_text"] = ""
-        if "input_tokens" not in df.columns:
-            df["input_tokens"] = [[]] * len(df)
-            
-        return df
+            processed_tasks = []
+            for task in tasks:
+                # 使用tokenizer处理输入
+                input_text = task.get("input", "")
+                tokens = self.tokenizer(input_text, return_tensors="pt")
+                
+                processed_task = {
+                    **task,
+                    "input_tokens": tokens["input_ids"][0],
+                    "attention_mask": tokens["attention_mask"][0],
+                    "decoded_text": input_text  # 添加 decoded_text 字段
+                }
+                processed_tasks.append(processed_task)
+                
+            return processed_tasks
+        except Exception as e:
+            logger.error(f"处理令牌失败: {str(e)}")
+            raise RuntimeError(f"处理令牌失败: {str(e)}")
     
     def _apply_model_specific_processing(self, tokens: List[int]) -> List[int]:
         """应用模型特定的令牌处理逻辑。
@@ -114,7 +162,8 @@ class TokenProcessing:
         Returns:
             处理后的令牌序列
         """
-        # 默认实现：直接返回输入令牌序列
+        if not self.initialized:
+            self.initialize()
         return tokens
 
     def get_token_data(self, df: pd.DataFrame, format: str = 'dataframe') -> Union[pd.DataFrame, Dict]:
@@ -461,7 +510,14 @@ class TokenProcessing:
         清理所有打开的文件句柄和图表资源。
         """
         try:
+            # 清理tokenizer
+            if self.tokenizer is not None:
+                del self.tokenizer
+                self.tokenizer = None
+            
             # 关闭所有matplotlib图表
             plt.close('all')
+            
+            self.initialized = False
         except Exception as e:
-            logger.warning(f"清理图表资源时出错: {str(e)}")
+            logger.warning(f"清理资源时出错: {str(e)}")

@@ -6,7 +6,7 @@ from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 
 def load_config():
     """加载配置文件"""
-    config_path = "configs/models/tinyllama.yaml"
+    config_path = "configs/model_config.yaml"
     if not os.path.exists(config_path):
         # 创建默认配置
         config = {

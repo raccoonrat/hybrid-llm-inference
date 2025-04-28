@@ -163,29 +163,16 @@ class BaseModel(ABC):
         else:
             logger.info("模型已初始化")
 
-    def generate(self, prompt: str, max_length: int = 100) -> str:
+    @abstractmethod
+    def generate(self, input_text: str, max_tokens: Optional[int] = None, temperature: float = 0.7) -> str:
         """生成文本。
-        
+
         Args:
-            prompt: 输入提示
-            max_length: 最大生成长度
-            
+            input_text: 输入文本
+            max_tokens: 最大生成令牌数
+            temperature: 采样温度，控制生成的随机性
+
         Returns:
             str: 生成的文本
         """
-        if self.model_path:
-            try:
-                tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-                inputs = tokenizer(prompt, return_tensors="pt").to(self.device)
-                model = AutoModelForCausalLM.from_pretrained(self.model_path).to(self.device)
-                outputs = model.generate(
-                    **inputs,
-                    max_length=max_length,
-                    num_return_sequences=1
-                )
-                return tokenizer.decode(outputs[0], skip_special_tokens=True)
-            except Exception as e:
-                self.logger.error(f"生成文本失败: {str(e)}")
-                return ""
-        else:
-            return "This is a mock response."
+        pass
