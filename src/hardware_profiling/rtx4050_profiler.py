@@ -116,7 +116,7 @@ else:
 class RTX4050Profiler(HardwareProfiler):
     """RTX 4050 显卡性能分析器类。"""
     
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config=None):
         """初始化 RTX 4050 性能分析器。
 
         Args:
@@ -126,10 +126,12 @@ class RTX4050Profiler(HardwareProfiler):
                 - idle_power: 空闲功率
                 - sample_interval: 采样间隔
         """
-        self.device_id = config.get("device_id", 0)
-        self.device_type = config.get("device_type", "gpu")
-        self.idle_power = config.get("idle_power", 15.0)
-        self.sample_interval = config.get("sample_interval", 200)
+        super().__init__(config)
+        self.config = config or {}
+        self.device_id = self.config.get("device_id", 0)
+        self.device_type = self.config.get("device_type", "gpu")
+        self.idle_power = self.config.get("idle_power", 15.0)
+        self.sample_interval = self.config.get("sample_interval", 200)
         self.initialized = False
         self.device = None
         self.handle = None
@@ -138,29 +140,11 @@ class RTX4050Profiler(HardwareProfiler):
         self.is_test_mode = os.getenv('TEST_MODE') == '1'
         self.start_time = None
         self.start_energy = None
+        self.gpu_handles = []
+        self._init_nvml()
 
-        # 验证配置
-        self._validate_config()
-
-        # 调用父类初始化
-        super().__init__(config)
-        
-        # 初始化分析器
-        self._init_profiler()
-
-    def _validate_config(self) -> None:
-        """验证配置。"""
-        if not isinstance(self.device_id, int):
-            raise ValueError("device_id 必须是整数")
-        if not isinstance(self.device_type, str):
-            raise ValueError("device_type 必须是字符串")
-        if not isinstance(self.idle_power, (int, float)) or self.idle_power <= 0:
-            raise ValueError("idle_power 必须是正数")
-        if not isinstance(self.sample_interval, int) or self.sample_interval <= 0:
-            raise ValueError("sample_interval 必须是正整数")
-
-    def _init_profiler(self) -> None:
-        """初始化性能分析器。"""
+    def _init_nvml(self) -> None:
+        """初始化 NVML。"""
         try:
             if not torch.cuda.is_available():
                 logger.warning("CUDA 不可用，使用 CPU 模式")
@@ -225,121 +209,149 @@ class RTX4050Profiler(HardwareProfiler):
             logger.error(f"功率测量失败: {e}")
             return max(0.001, self.idle_power)
 
-    def measure(self, task: Callable, input_tokens: int, output_tokens: int) -> Dict[str, float]:
+    def measure(self, task: Callable, input_tokens: int, output_tokens: int) -> Dict[str, Any]:
         """测量任务性能。
 
         Args:
-            task: 要测量的任务
+            task: 要测量的任务函数
             input_tokens: 输入令牌数
             output_tokens: 输出令牌数
 
         Returns:
-            包含以下字段的字典：
+            Dict[str, Any]: 包含以下字段的字典：
                 - energy: 能耗 (J)
                 - runtime: 运行时间 (s)
                 - throughput: 吞吐量 (tokens/s)
                 - energy_per_token: 每令牌能耗 (J/token)
                 - avg_power: 平均功率 (W)
                 - peak_power: 峰值功率 (W)
+                - result: 任务执行结果
+                - gpu_metrics: GPU相关指标
+                    - utilization: GPU利用率 (%)
+                    - memory_used: 显存使用量 (MB)
+                    - temperature: GPU温度 (°C)
+                - status: 执行状态
+                - error: 错误信息（如果有）
         """
         if not self.initialized:
-            logger.error("性能分析器未初始化")
             raise RuntimeError("性能分析器未初始化")
 
+        # 初始化结果字典
+        metrics = {
+            "energy": 0.0,
+            "runtime": 0.0,
+            "throughput": 0.0,
+            "energy_per_token": 0.0,
+            "avg_power": 0.0,
+            "peak_power": 0.0,
+            "result": None,
+            "gpu_metrics": {
+                "utilization": 0.0,
+                "memory_used": 0.0,
+                "temperature": 0.0
+            },
+            "status": "failed",
+            "error": None
+        }
+
         try:
-            # 初始化采样列表
+            # 记录开始时间
+            start_time = time.time()
             power_samples = []
-            time_samples = []
-            sampling_interval = self.sample_interval / 1000.0  # 转换为秒
-            
-            # 获取初始功率
-            start_time = time.perf_counter()
-            start_power = self.measure_power()
-            power_samples.append(start_power)
-            time_samples.append(start_time)
-            logger.debug(f"初始功率: {start_power:.3f}W")
-            
-            # 创建监控线程
-            def power_monitoring():
-                try:
-                    while self.is_measuring:
-                        current_time = time.perf_counter()
-                        power = self.measure_power()
-                        power_samples.append(power)
-                        time_samples.append(current_time)
-                        # 动态调整采样间隔，确保采样点足够密集
-                        time.sleep(max(0.001, min(sampling_interval, 0.01)))
-                except Exception as e:
-                    logger.error(f"功率监控线程异常: {str(e)}")
-                    self.is_measuring = False
-            
-            # 启动监控线程
+            peak_power = 0.0
+
+            # 启动性能监控线程
             import threading
-            self.is_measuring = True
+            import queue
+            power_queue = queue.Queue()
+            stop_monitoring = threading.Event()
+
+            def power_monitoring():
+                while not stop_monitoring.is_set():
+                    try:
+                        current_power = self.measure_power()
+                        gpu_util = self.get_gpu_utilization()
+                        mem_info = self.get_memory_info()
+                        temp = self._get_temperature()
+                        
+                        metrics["gpu_metrics"].update({
+                            "utilization": gpu_util,
+                            "memory_used": mem_info["used"] / (1024 * 1024),  # 转换为MB
+                            "temperature": temp
+                        })
+                        
+                        power_queue.put(current_power)
+                        time.sleep(self.sample_interval / 1000.0)  # 转换为秒
+                    except Exception as e:
+                        logger.error(f"性能监控错误: {str(e)}")
+                        break
+
+            # 启动监控线程
             monitor_thread = threading.Thread(target=power_monitoring)
-            monitor_thread.daemon = True
             monitor_thread.start()
-            
-            # 执行任务
+
             try:
-                task()
+                # 执行任务
+                metrics["result"] = task()
+                metrics["status"] = "success"
             except Exception as e:
+                metrics["error"] = str(e)
                 logger.error(f"任务执行失败: {str(e)}")
                 raise
+
             finally:
                 # 停止监控
-                self.is_measuring = False
-                monitor_thread.join(timeout=1.0)
-            
-            # 记录结束时间和功率
-            end_time = time.perf_counter()
-            end_power = self.measure_power()
-            power_samples.append(end_power)
-            time_samples.append(end_time)
-            
-            # 计算指标
-            runtime = max(end_time - start_time, 0.001)  # 确保运行时间至少为1ms
-            
-            # 计算平均功率和峰值功率
-            avg_power = max(sum(power_samples) / len(power_samples), 0.001)
-            peak_power = max(power_samples)
-            
-            # 使用更精确的能量计算方法
-            energy = 0.0
-            for i in range(len(power_samples) - 1):
-                dt = time_samples[i + 1] - time_samples[i]
-                # 使用梯形法则计算能量，考虑采样间隔不均匀
-                energy += (power_samples[i] + power_samples[i + 1]) * dt / 2.0
-            
-            # 确保能量值为正数
-            energy = max(energy, 0.001)
-            
-            # 计算其他指标
-            total_tokens = max(input_tokens + output_tokens, 1)
-            throughput = total_tokens / runtime
-            energy_per_token = energy / total_tokens
-            
-            # 记录计算的指标
-            logger.debug(f"计算的性能指标:")
-            logger.debug(f"- 运行时间: {runtime:.3f}s")
-            logger.debug(f"- 平均功率: {avg_power:.3f}W")
-            logger.debug(f"- 峰值功率: {peak_power:.3f}W")
-            logger.debug(f"- 能耗: {energy:.3f}J")
-            logger.debug(f"- 吞吐量: {throughput:.3f}tokens/s")
-            logger.debug(f"- 每令牌能耗: {energy_per_token:.3f}J/token")
-            logger.debug(f"- 采样点数: {len(power_samples)}")
+                stop_monitoring.set()
+                monitor_thread.join()
 
-            return {
+                # 收集所有功率样本
+                while not power_queue.empty():
+                    power = power_queue.get()
+                    power_samples.append(power)
+                    peak_power = max(peak_power, power)
+
+            # 计算指标
+            end_time = time.time()
+            runtime = end_time - start_time
+            total_tokens = input_tokens + output_tokens
+
+            if power_samples:
+                avg_power = sum(power_samples) / len(power_samples)
+                energy = avg_power * runtime
+            else:
+                avg_power = self.idle_power
+                energy = avg_power * runtime
+
+            # 更新指标
+            metrics.update({
                 "energy": energy,
                 "runtime": runtime,
-                "throughput": throughput,
-                "energy_per_token": energy_per_token,
+                "throughput": total_tokens / runtime if runtime > 0 else 0.0,
+                "energy_per_token": energy / total_tokens if total_tokens > 0 else 0.0,
                 "avg_power": avg_power,
                 "peak_power": peak_power
-            }
+            })
+
+            return metrics
+
         except Exception as e:
+            metrics["error"] = str(e)
             logger.error(f"性能测量失败: {str(e)}")
-            raise
+            return metrics
+
+    def _get_temperature(self) -> float:
+        """获取GPU温度。
+        
+        Returns:
+            float: GPU温度（摄氏度）
+        """
+        try:
+            if self.handle is None or not self.nvml_initialized:
+                return 0.0
+            return pynvml.nvmlDeviceGetTemperature(self.handle, pynvml.NVML_TEMPERATURE_GPU)
+        except Exception as e:
+            logger.error(f"获取GPU温度失败: {str(e)}")
+            return 0.0
 
     def cleanup(self) -> None:
         """清理资源。"""

@@ -4,3 +4,34 @@ hardware_map:
   a100: nvidia_a100
   rtx4050: nvidia_rtx4050
   a800: nvidia_a800
+
+scheduler:
+  max_batch_size: 4
+  max_queue_size: 100
+  max_wait_time: 1.0
+  token_threshold: 512
+  dynamic_threshold: true
+  batch_processing: true
+  
+  # 设备优先级配置
+  device_priority:
+    - rtx4050
+    - a100
+    - m1_pro
+
+  # 性能监控配置
+  monitoring:
+    sample_interval: 200  # ms
+    metrics:
+      - power_usage
+      - memory_usage
+      - gpu_utilization
+      - temperature
+
+  # 任务分配策略
+  allocation_strategy:
+    type: token_based
+    parameters:
+      min_tokens: 32
+      max_tokens: 2048
+      batch_size_factor: 1.5

@@ -10,6 +10,7 @@ from src.model_zoo.base_model import BaseModel
 import os
 from src.scheduling.token_based_scheduler import TokenBasedScheduler
 from src.scheduling.base_allocator import BaseAllocator
+import yaml
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,26 +21,47 @@ is_test_mode = os.environ.get('TEST_MODE', '0') == '1'
 class TaskAllocator(BaseAllocator):
     """任务分配器类"""
     
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, hardware_config: Dict[str, Any], model_config: Dict[str, Any], device_name: str = "m1_pro"):
         """
         初始化任务分配器
         
         Args:
-            config: 配置字典，包含以下字段：
-                - hardware_config: 硬件配置
-                - model_config: 模型配置
+            hardware_config: 硬件配置
+            model_config: 模型配置
+            device_name: 设备名称，默认为 m1_pro
         """
-        if config is None:
-            raise ValueError("配置不能为 None")
-            
-        super().__init__(config)
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Logger initialized for %s", __name__)
+        
+        # 检查是否在测试模式下
+        self.is_test_mode = os.environ.get("TEST_MODE", "").lower() == "true"
+        
+        # 保存配置
+        self.hardware_config = hardware_config
+        self.model_config = model_config
+        
+        # 加载调度器配置
+        scheduler_config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'scheduler_config.yaml')
+        with open(scheduler_config_path, 'r', encoding='utf-8') as f:
+            self.scheduler_config = yaml.safe_load(f)
+        
+        # 获取设备配置
+        if not self.hardware_config:
+            # 从配置文件中读取硬件配置
+            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'hardware_config.yaml')
+            with open(config_path, 'r') as f:
+                hardware_configs = yaml.safe_load(f)
+            self.hardware_config = hardware_configs.get(device_name, {})
+            if not self.hardware_config:
+                raise ValueError(f"Missing {device_name} configuration in hardware_config.yaml")
+        
+        # 初始化性能分析器
+        self.profiler = get_profiler(device_name, self.hardware_config)
         
         # 初始化基本属性
-        self.hardware_config = config.get("hardware_config", {})
-        self.model_config = config.get("model_config", {})
         self.initialized = False
-        self.token_threshold = config.get("token_threshold", 128)  # 默认阈值
-
+        self.token_threshold = self.scheduler_config.get("scheduler", {}).get("token_threshold", 128)  # 从调度器配置中获取阈值
+        
         # 验证配置
         self._validate_config()
         
@@ -99,10 +121,8 @@ class TaskAllocator(BaseAllocator):
         if total_tokens <= 0:
             raise ValueError("总令牌数必须大于 0")
         
-        if total_tokens <= self.token_threshold:
-            return "nvidia_rtx4050"  # 小任务分配给GPU
-        else:
-            return "apple_m1_pro"  # 大任务分配给CPU
+        # 由于只有 RTX 4050，所以直接返回
+        return "rtx4050"
     
     def allocate(self, tasks: List[Dict[str, Any]], model_name: str) -> List[Dict[str, Any]]:
         """

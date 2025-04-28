@@ -4,9 +4,8 @@
 import os
 import psutil
 import platform
+import torch
 from abc import ABC, abstractmethod
-if os.getenv('TEST_MODE') != '1':
-    import torch
 from typing import Dict, Any, Optional, List
 from src.toolbox.logger import get_logger
 
@@ -15,14 +14,31 @@ logger = get_logger(__name__)
 class HardwareProfiler(ABC):
     """硬件性能分析基类。"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config=None):
         """初始化硬件性能分析器。
 
         Args:
-            config: 配置字典，包含硬件相关的配置参数
+            config: 配置字典，包含以下字段：
+                - device_id: 设备 ID
+                - device_type: 设备类型
+                - idle_power: 空闲功率
+                - sample_interval: 采样间隔
         """
         self.logger = logger
-        self.config = config
+        self.config = config or {}
+        self.device_id = self.config.get("device_id", 0)
+        self.device_type = self.config.get("device_type", "gpu")
+        self.idle_power = self.config.get("idle_power", 15.0)
+        self.sample_interval = self.config.get("sample_interval", 200)
+        self.initialized = False
+        self.device = None
+        self.handle = None
+        self.nvml_initialized = False
+        self.is_measuring = False
+        self.is_test_mode = os.getenv('TEST_MODE') == '1'
+        self.start_time = None
+        self.start_energy = None
+        self.gpu_handles = []
         self.system_info = self._get_system_info()
         self.metrics = {}
         

@@ -10,4 +10,10 @@ hardware:
     boost_clock: 2400  # MHz
     memory_clock: 18000  # MHz
     memory_bus_width: 96  # bits
-    tdp: 115  # Watts 
+    tdp: 115  # Watts
+    runtime:
+      max_concurrent_tasks: 4
+      memory_utilization_limit: 0.9
+      power_limit: 100  # Watts
+      temperature_limit: 85  # Celsius
+      fan_speed: auto 

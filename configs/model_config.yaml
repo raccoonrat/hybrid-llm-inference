@@ -26,6 +26,7 @@ models:
     max_length: 2048
     batch_size: 1
     device: cuda
+    dtype: float16
     precision: float16
     quantization: none
     cache_dir: data/models

@@ -1,21 +1,43 @@
 # hybrid-llm-inference/configs/hardware_config.yaml
-m1_pro:
-  device_type: cpu_gpu
-  device_id: 0
-  idle_power: 10.0
-  sample_interval: 0.1
-a100:
-  device_type: gpu
-  device_id: 0
-  idle_power: 40.0
-  sample_interval: 200
-rtx4050:
-  device_type: gpu
-  device_id: 1
-  idle_power: 15.0
-  sample_interval: 200
-a800:
-  device_type: gpu
-  device_id: 2
-  idle_power: 50.0
-  sample_interval: 200
+devices:
+  rtx4050:
+    device_type: gpu
+    device_id: 0
+    idle_power: 15.0
+    sample_interval: 200
+    memory_limit: 6144  # 6GB
+    compute_capability: 8.9
+    cuda_cores: 2560
+    boost_clock: 2400  # MHz
+    memory_clock: 18000  # MHz
+    memory_bus_width: 96  # bits
+    tdp: 115  # Watts
+    priority: 1  # 调度优先级
+
+  a100:
+    device_type: gpu
+    device_id: 1
+    idle_power: 30.0
+    sample_interval: 200
+    memory_limit: 40960  # 40GB
+    compute_capability: 8.0
+    cuda_cores: 6912
+    boost_clock: 1410  # MHz
+    memory_clock: 1215  # MHz
+    memory_bus_width: 5120  # bits
+    tdp: 400  # Watts
+    priority: 2
+
+  m1_pro:
+    device_type: gpu
+    device_id: 2
+    idle_power: 5.0
+    sample_interval: 200
+    memory_limit: 16384  # 16GB
+    compute_capability: 8.0
+    cores: 16
+    boost_clock: 3228  # MHz
+    memory_clock: 6400  # MHz
+    memory_bus_width: 256  # bits
+    tdp: 30  # Watts
+    priority: 3
