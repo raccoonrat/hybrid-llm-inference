@@ -107,7 +107,7 @@ class SystemPipeline:
             self.scheduler_config = self._load_config("scheduler_config")
             
             # 如果没有配置文件，使用默认配置
-            if not self.model_config:
+            if not self.model_config or "models" not in self.model_config:
                 self.model_config = {
                     "models": {
                         self.model_name: {
@@ -115,14 +115,31 @@ class SystemPipeline:
                             "model_path": str(self.model_path),
                             "mode": self.mode,
                             "max_length": 512,
-                            "batch_size": 1
+                            "batch_size": 1,
+                            "device": "cuda",
+                            "dtype": "float32"
                         }
                     }
                 }
-            elif "models" in self.model_config and self.model_name in self.model_config["models"]:
-                if "batch_size" not in self.model_config["models"][self.model_name]:
-                    self.model_config["models"][self.model_name]["batch_size"] = 1
-                self.model_config["models"][self.model_name]["model_path"] = str(self.model_path)
+            elif self.model_name not in self.model_config["models"]:
+                self.model_config["models"][self.model_name] = {
+                    "model_name": self.model_name,
+                    "model_path": str(self.model_path),
+                    "mode": self.mode,
+                    "max_length": 512,
+                    "batch_size": 1,
+                    "device": "cuda",
+                    "dtype": "float32"
+                }
+            else:
+                model_config = self.model_config["models"][self.model_name]
+                if "batch_size" not in model_config:
+                    model_config["batch_size"] = 1
+                if "device" not in model_config:
+                    model_config["device"] = "cuda"
+                if "dtype" not in model_config:
+                    model_config["dtype"] = "float32"
+                model_config["model_path"] = str(self.model_path)
             
             if not self.hardware_config:
                 self.hardware_config = {
@@ -152,7 +169,7 @@ class SystemPipeline:
                     "name": self.model_name,
                     "model_config": {
                         "model_path": str(self.model_path),
-                        "device": "cuda",
+                        "device": self.model_config["models"][self.model_name].get("device", "cuda"),
                         "mode": self.mode,
                         "dtype": "float32",
                         "max_memory": None,
@@ -220,7 +237,7 @@ class SystemPipeline:
             # 优化阈值
             optimizer = ThresholdOptimizer({
                 "model_config": self.model_config,
-                "measure_fn": lambda task, input_tokens, output_tokens, device_id: {
+                "measure_fn": lambda input_tokens, output_tokens, device_id: {
                     "energy": 10.0,
                     "runtime": 1.0,
                     "throughput": (input_tokens + output_tokens) / 1.0,
@@ -232,16 +249,31 @@ class SystemPipeline:
             })
             thresholds = optimizer.optimize(processed_data)
             
+            # 获取模型配置
+            model_config = self.model_config.get("models", {}).get(self.model_name, {})
+            model_device = model_config.get("device", "cuda")
+            model_dtype = model_config.get("dtype", "float32")
+            
             # 分析权衡
             analyzer = TradeoffAnalyzer(
                 token_distribution_path=self.distribution_path,
                 hardware_config=self.hardware_config,
-                model_config=self.model_config
+                model_config={
+                    "models": {
+                        self.model_name: {
+                            "model_path": str(self.model_path),
+                            "device": "cuda",
+                            "dtype": model_dtype,
+                            "model_name": self.model_name,
+                            "batch_size": model_config.get("batch_size", 1)
+                        }
+                    }
+                }
             )
-            tradeoffs = analyzer.analyze(processed_data, thresholds)
+            tradeoffs = analyzer.analyze()
             
             # 调度任务
-            scheduled_tasks = self.scheduler.schedule(processed_data, tradeoffs)
+            scheduled_tasks = self.scheduler.schedule(processed_data)
             
             # 分配任务
             allocated_tasks = self.allocator.allocate(scheduled_tasks, self.model_name)
@@ -257,9 +289,9 @@ class SystemPipeline:
                 "runtime": metrics.get("runtime", 0.0),
                 "metrics": metrics,
                 "config": {
-                    "model_config": self._load_config("model_config"),
-                    "hardware_config": self._load_config("hardware_config"),
-                    "scheduler_config": self._load_config("scheduler_config")
+                    "model_config": self.model_config,
+                    "hardware_config": self.hardware_config,
+                    "scheduler_config": self.scheduler_config
                 },
                 "distribution": self.distribution
             }

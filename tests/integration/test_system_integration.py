@@ -65,13 +65,15 @@ def mock_configs(tmp_path):
             "device_type": "cpu_gpu",
             "device_id": 0,
             "idle_power": 10.0,
-            "sample_interval": 200
+            "sample_interval": 200,
+            "device": "mps"
         },
         "nvidia_rtx4050": {
             "device_type": "gpu",
             "device_id": 0,
             "idle_power": 15.0,
-            "sample_interval": 200
+            "sample_interval": 200,
+            "device": "cuda"
         }
     }
     
@@ -83,7 +85,8 @@ def mock_configs(tmp_path):
                 "model_path": "D:/Dev/cursor/github.com/hybrid-llm-inference/models/TinyLlama-1.1B-Chat-v1.0",
                 "mode": "local",
                 "batch_size": 1,
-                "max_length": 128
+                "max_length": 128,
+                "device": "cuda"
             }
         }
     }

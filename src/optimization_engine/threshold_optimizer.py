@@ -5,7 +5,7 @@ from pathlib import Path
 from toolbox.logger import get_logger
 from .cost_function import CostFunction
 from model_zoo import get_model
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas as pd
 
 logger = get_logger(__name__)
@@ -20,20 +20,24 @@ class ThresholdOptimizer:
             config: 配置字典，包含以下字段：
                 - model_config: 模型配置
                 - measure_fn: 测量函数
-                - min_threshold: 最小阈值
-                - max_threshold: 最大阈值
-                - step_size: 步长
+                - device_id: 设备ID
+                - search_range: 搜索范围
+                - num_points: 搜索点数
         """
         self.model_config = config.get("model_config", {})
         self.measure_fn = config.get("measure_fn")
-        self.min_threshold = config.get("min_threshold", 100)
-        self.max_threshold = config.get("max_threshold", 1000)
-        self.step_size = config.get("step_size", 100)
+        self.device_id = config.get("device_id", "cuda:0")
+        self.search_range = config.get("search_range", (0.1, 0.9))
+        self.num_points = config.get("num_points", 10)
         self._validate_config()
-        self.cost_function = CostFunction({
+        
+        # 初始化成本函数
+        cost_fn_config = {
             "model_config": self.model_config,
-            "measure_fn": self.measure_fn
-        })
+            "measure_fn": self.measure_fn,
+            "device_id": self.device_id
+        }
+        self.cost_function = CostFunction(cost_fn_config)
     
     def _validate_config(self) -> None:
         """验证配置。"""
@@ -43,91 +47,83 @@ class ThresholdOptimizer:
             raise ValueError("model_config 不能为空")
         if not callable(self.measure_fn):
             raise ValueError("measure_fn 必须是可调用对象")
-        if not isinstance(self.min_threshold, (int, float)) or self.min_threshold <= 0:
-            raise ValueError("min_threshold 必须是正数")
-        if not isinstance(self.max_threshold, (int, float)) or self.max_threshold <= self.min_threshold:
-            raise ValueError("max_threshold 必须大于 min_threshold")
-        if not isinstance(self.step_size, (int, float)) or self.step_size <= 0:
-            raise ValueError("step_size 必须是正数")
+        if not isinstance(self.device_id, str):
+            raise ValueError("device_id 必须是字符串")
+        if not isinstance(self.search_range, tuple) or len(self.search_range) != 2:
+            raise ValueError("search_range 必须是包含两个元素的元组")
+        if not isinstance(self.num_points, int) or self.num_points <= 0:
+            raise ValueError("num_points 必须是正整数")
     
-    def _validate_task(self, task: Dict[str, Any]) -> Tuple[int, int]:
+    def _validate_task(self, task: Union[Dict[str, Any], pd.DataFrame]) -> Tuple[int, int]:
         """验证任务数据并提取令牌数。
 
         Args:
-            task: 任务数据字典
+            task: 任务数据字典或 DataFrame
 
         Returns:
             输入令牌数和输出令牌数的元组
         """
-        if not isinstance(task, dict):
-            raise ValueError("任务数据必须是字典类型")
+        if isinstance(task, pd.DataFrame):
+            # 计算所有行的输入和输出令牌总数
+            total_input_tokens = 0
+            total_output_tokens = 0
             
-        # 尝试不同的键名
-        input_tokens = task.get("input_tokens", 
-                              task.get("input_length",
-                              task.get("prompt_tokens", 0)))
-        output_tokens = task.get("output_tokens",
-                               task.get("output_length",
-                               task.get("completion_tokens", 0)))
-                               
-        if isinstance(input_tokens, str):
-            input_tokens = len(input_tokens.split())
-        if isinstance(output_tokens, str):
-            output_tokens = len(output_tokens.split())
+            for _, row in task.iterrows():
+                input_tokens = len(row['input_tokens']) if isinstance(row['input_tokens'], list) else 0
+                output_tokens = len(row['decoded_text']) if isinstance(row['decoded_text'], list) else 0
+                
+                total_input_tokens += input_tokens
+                total_output_tokens += output_tokens
+                
+            return total_input_tokens, total_output_tokens
             
-        return int(input_tokens), int(output_tokens)
+        elif isinstance(task, dict):
+            # 尝试不同的键名
+            input_tokens = task.get("input_tokens", 
+                                  task.get("input_length",
+                                  task.get("prompt_tokens", 0)))
+            output_tokens = task.get("output_tokens",
+                                   task.get("output_length",
+                                   task.get("completion_tokens", 0)))
+                                   
+            if isinstance(input_tokens, str):
+                input_tokens = len(input_tokens.split())
+            if isinstance(output_tokens, str):
+                output_tokens = len(output_tokens.split())
+                
+            return int(input_tokens), int(output_tokens)
+        else:
+            raise ValueError("任务数据必须是字典或 DataFrame 类型")
     
-    def optimize(self, tasks: List[Dict[str, Any]]) -> float:
+    def optimize(self, task: Dict[str, Any]) -> float:
         """优化阈值。
 
         Args:
-            tasks: 任务列表，每个任务应包含输入和输出令牌信息
+            task: 任务字典，包含输入和输出标记
 
         Returns:
             最优阈值
         """
-        try:
-            if isinstance(tasks, pd.DataFrame) and tasks.empty:
-                logger.warning("任务列表为空")
-                return self.min_threshold
-                
-            best_threshold = self.min_threshold
-            best_cost = float('inf')
-            
-            # 遍历所有可能的阈值
-            for threshold in range(self.min_threshold, self.max_threshold + 1, self.step_size):
-                total_cost = 0.0
-                
-                # 计算每个任务的成本
-                for _, task in tasks.iterrows():
-                    try:
-                        # 将任务数据转换为字典格式
-                        task_dict = {
-                            "input_tokens": len(task.get("instruction", "").split()),
-                            "output_tokens": len(task.get("output", "").split())
-                        }
-                        
-                        input_tokens, output_tokens = self._validate_task(task_dict)
-                        
-                        # 根据阈值选择模型
-                        if input_tokens + output_tokens <= threshold:
-                            cost = self.cost_function.calculate(input_tokens, output_tokens)
-                        else:
-                            cost = self.cost_function.calculate(input_tokens, output_tokens) * 1.5
-                        
-                        total_cost += cost
-                    except Exception as e:
-                        logger.warning(f"处理任务时出错，跳过该任务: {str(e)}")
-                        continue
-                
-                # 更新最优阈值
-                if total_cost < best_cost:
-                    best_cost = total_cost
-                    best_threshold = threshold
-            
-            return best_threshold
-        except Exception as e:
-            logger.error(f"阈值优化失败: {str(e)}")
-            raise
+        input_tokens, output_tokens = self._validate_task(task)
+        
+        # 生成搜索点
+        thresholds = np.linspace(
+            self.search_range[0],
+            self.search_range[1],
+            self.num_points
+        )
+        
+        # 计算每个阈值的成本
+        costs = []
+        for threshold in thresholds:
+            self.model_config["threshold"] = threshold
+            cost = self.cost_function.calculate(input_tokens, output_tokens)
+            costs.append(cost)
+        
+        # 找到最小成本对应的阈值
+        min_cost_idx = np.argmin(costs)
+        optimal_threshold = thresholds[min_cost_idx]
+        
+        return optimal_threshold
 
 

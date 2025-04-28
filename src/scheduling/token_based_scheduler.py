@@ -57,20 +57,27 @@ class TokenBasedScheduler(BaseScheduler):
 
         Args:
             tasks: 任务列表，每个任务包含以下字段：
-                - input: 输入文本
-                - max_tokens: 最大生成令牌数
+                - decoded_text: 解码后的文本
+                - input_tokens: 输入令牌列表
 
         Returns:
             调度后的任务列表，每个任务包含以下字段：
-                - input: 输入文本
-                - max_tokens: 最大生成令牌数
+                - decoded_text: 解码后的文本
+                - input_tokens: 输入令牌列表
                 - model: 分配的模型
                 - hardware: 分配的硬件
         """
         if not self.initialized:
             raise RuntimeError("调度器未初始化")
-        if not tasks:
+            
+        # 如果是 DataFrame，转换为列表
+        if hasattr(tasks, 'empty'):
+            if tasks.empty:
+                return []
+            tasks = tasks.to_dict('records')
+        elif not tasks:
             return []
+            
         if not isinstance(tasks, list):
             raise TypeError("tasks 必须是列表类型")
 
@@ -80,15 +87,14 @@ class TokenBasedScheduler(BaseScheduler):
                 raise ValueError("任务不能为 None")
             if not isinstance(task, dict):
                 raise TypeError("任务必须是字典类型")
-            if "input" not in task or "max_tokens" not in task:
-                raise ValueError("任务必须包含 input 和 max_tokens 字段")
+            if "decoded_text" not in task or "input_tokens" not in task:
+                raise ValueError("任务必须包含 decoded_text 和 input_tokens 字段")
                 
-            input_text = task["input"]
-            max_tokens = task["max_tokens"]
-            
-            # 计算输入文本的令牌数量（简单估计）
-            input_tokens = len(input_text.split())
-            total_tokens = input_tokens + max_tokens
+            # 计算输入令牌数量
+            input_tokens_count = len(task["input_tokens"])
+            # 估计输出令牌数量（这里简单地假设为输入令牌数量的 1.5 倍）
+            output_tokens_count = int(input_tokens_count * 1.5)
+            total_tokens = input_tokens_count + output_tokens_count
             
             # 基于总令牌数和硬件配置进行分配
             if total_tokens <= 1000:
@@ -105,7 +111,9 @@ class TokenBasedScheduler(BaseScheduler):
             scheduled_task.update({
                 "model": model,
                 "hardware": hardware,
-                "estimated_tokens": total_tokens
+                "estimated_tokens": total_tokens,
+                "input_tokens_count": input_tokens_count,
+                "output_tokens_count": output_tokens_count
             })
             scheduled_tasks.append(scheduled_task)
 
