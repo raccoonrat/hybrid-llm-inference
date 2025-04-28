@@ -4,7 +4,7 @@ import pytest
 import torch
 import numpy as np
 from unittest.mock import patch, MagicMock
-from src.scheduling.task_scheduler import TaskScheduler
+from src.scheduling.task_based_scheduler import TaskBasedScheduler
 from src.scheduling.task_allocator import TaskAllocator
 from src.scheduling.token_based_scheduler import TokenBasedScheduler
 from src.scheduling.base_allocator import BaseAllocator
@@ -44,8 +44,8 @@ TEST_CONFIG = {
 
 @pytest.fixture
 def task_scheduler():
-    """创建 TaskScheduler 实例的 fixture。"""
-    return TaskScheduler()
+    """创建 TaskBasedScheduler 实例的 fixture。"""
+    return TaskBasedScheduler(TEST_CONFIG)
 
 @pytest.fixture
 def task_allocator():
@@ -58,7 +58,7 @@ def token_scheduler():
     return TokenBasedScheduler(TEST_CONFIG)
 
 def test_task_scheduler_init(task_scheduler):
-    """测试 TaskScheduler 初始化。"""
+    """测试 TaskBasedScheduler 初始化。"""
     assert task_scheduler.tasks == []
     assert task_scheduler.device_queues == {"apple_m1_pro": [], "nvidia_rtx4050": []}
     assert task_scheduler.gpu_cache == {}
@@ -71,14 +71,14 @@ def test_task_scheduler_init(task_scheduler):
     assert task_scheduler.batch_results == {}
 
 def test_task_scheduler_add_task(task_scheduler):
-    """测试 TaskScheduler 添加任务。"""
+    """测试 TaskBasedScheduler 添加任务。"""
     task = {"instruction": "test", "input": "test input"}
     task_scheduler.add_task(task)
     assert len(task_scheduler.tasks) == 1
     assert task_scheduler.tasks[0] == task
 
 def test_task_scheduler_schedule_tasks(task_scheduler):
-    """测试 TaskScheduler 调度任务。"""
+    """测试 TaskBasedScheduler 调度任务。"""
     tasks = [
         {"instruction": "test1", "input": "test input 1"},
         {"instruction": "test2", "input": "test input 2"}
@@ -87,7 +87,7 @@ def test_task_scheduler_schedule_tasks(task_scheduler):
     for task in tasks:
         task_scheduler.add_task(task)
     
-    scheduled_tasks = task_scheduler.schedule_tasks(token_threshold=100)
+    scheduled_tasks = task_scheduler.schedule(tasks)
     assert len(scheduled_tasks) == 2
     for task in scheduled_tasks:
         assert "task" in task
@@ -95,7 +95,7 @@ def test_task_scheduler_schedule_tasks(task_scheduler):
         assert task["device"] in ["apple_m1_pro", "nvidia_rtx4050"]
 
 def test_task_scheduler_warmup(task_scheduler):
-    """测试 TaskScheduler 预热。"""
+    """测试 TaskBasedScheduler 预热。"""
     task_scheduler.warmup()
     assert task_scheduler.is_warmed_up
 

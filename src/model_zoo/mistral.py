@@ -185,10 +185,37 @@ class LocalMistral(BaseModel):
         self.device = config.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         self.logger.info(f"使用设备: {self.device}")
         
-        # 加载模型和分词器
+        # 验证配置
+        self._validate_base_config()
+        self._validate_config()
+        
+        # 初始化模型
+        self._init_model()
+        
+    def _validate_base_config(self) -> None:
+        """验证基础配置。"""
+        if not self.config:
+            raise ValueError("配置不能为空")
+            
+        if "model_path" not in self.config:
+            raise ValueError("模型路径不能为空")
+            
+        if "model_name" not in self.config:
+            raise ValueError("模型名称不能为空")
+            
+    def _validate_config(self) -> None:
+        """验证配置。"""
+        if "batch_size" not in self.config:
+            raise ValueError("批处理大小不能为空")
+            
+        if "max_length" not in self.config:
+            raise ValueError("最大序列长度不能为空")
+            
+    def _init_model(self) -> None:
+        """初始化模型。"""
         if not self.is_test_mode:
             try:
-                model_name = config.get("model_name", "mistralai/Mistral-7B-v0.1")
+                model_name = self.config.get("model_name", "mistralai/Mistral-7B-v0.1")
                 self.logger.info(f"加载模型: {model_name}")
                 
                 self.tokenizer = AutoTokenizer.from_pretrained(
@@ -211,11 +238,12 @@ class LocalMistral(BaseModel):
                 self.logger.error(f"模型加载失败: {str(e)}")
                 raise RuntimeError(f"模型加载失败: {str(e)}")
                 
-    def _do_inference(self, input_text: str) -> str:
+    def inference(self, input_text: str, max_tokens: Optional[int] = None) -> str:
         """执行Mistral模型的推理。
         
         Args:
             input_text: 输入文本
+            max_tokens: 最大生成令牌数
             
         Returns:
             str: 生成的文本
@@ -237,7 +265,7 @@ class LocalMistral(BaseModel):
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=self.config["max_length"],
+                    max_new_tokens=max_tokens or self.config["max_length"],
                     num_return_sequences=1,
                     temperature=0.7,
                     do_sample=True

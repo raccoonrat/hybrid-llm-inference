@@ -422,22 +422,23 @@ class ReportGenerator:
             ValueError: 当指标值无效时抛出
         """
         if isinstance(value, (float, int)):
-            if value <= 0:
-                raise ValueError(f"{key}指标值必须为正数")
+            if value < 0:
+                raise ValueError(f"{key}指标值不能为负数")
         elif isinstance(value, list):
-            if not value or not all(isinstance(v, (float, int)) and v > 0 for v in value):
-                raise ValueError(f"{key}指标列表中的所有值必须为正数")
+            if not value:
+                raise ValueError(f"{key}指标列表不能为空")
+            if any(v < 0 for v in value):
+                raise ValueError(f"{key}指标列表中不能包含负数")
         elif isinstance(value, dict):
-            # 对于字典类型的指标值，只验证数值类型的字段
+            if not value:
+                raise ValueError(f"{key}指标字典不能为空")
             for k, v in value.items():
-                if isinstance(v, (float, int)):
-                    if v <= 0:
-                        raise ValueError(f"{key}指标中的{k}值必须为正数")
-                elif isinstance(v, list):
-                    if not v or not all(isinstance(x, (float, int)) and x > 0 for x in v):
-                        raise ValueError(f"{key}指标中的{k}列表中的所有值必须为正数")
+                if not isinstance(v, (float, int)):
+                    raise ValueError(f"{key}指标字典中的值必须是数值类型")
+                if v < 0:
+                    raise ValueError(f"{key}指标字典中不能包含负数")
         else:
-            raise ValueError(f"{key}指标值类型必须是数字、列表或字典")
+            raise ValueError(f"{key}指标值类型必须是数值、列表或字典")
 
     def validate_metrics(self, metrics):
         """验证指标数据的格式。

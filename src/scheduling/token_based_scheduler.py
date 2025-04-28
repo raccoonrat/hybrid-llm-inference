@@ -24,6 +24,7 @@ class TokenBasedScheduler(BaseScheduler):
         self.token_threshold = config.get("token_threshold", 1000)
         self.hardware_config = config.get("hardware_config", {})
         self.model_config = config.get("model_config", {})
+        self.model_name = self.model_config.get("models", {}).get("tinyllama", {}).get("model_name", "TinyLlama-1.1B-Chat-v1.0")
         self.initialized = False
 
         # 验证配置
@@ -57,18 +58,28 @@ class TokenBasedScheduler(BaseScheduler):
 
         Args:
             tasks: 任务列表，每个任务包含以下字段：
-                - tokens: 令牌数量
+                - decoded_text: 解码后的文本
+                - input_tokens: 输入令牌列表
 
         Returns:
             调度后的任务列表，每个任务包含以下字段：
-                - tokens: 令牌数量
+                - input: 输入文本
+                - input_tokens_count: 输入令牌数
+                - output_tokens_count: 输出令牌数
                 - model: 分配的模型
                 - hardware: 分配的硬件
         """
         if not self.initialized:
             raise RuntimeError("调度器未初始化")
-        if not tasks:
+            
+        # 如果是 DataFrame，转换为列表
+        if hasattr(tasks, 'empty'):
+            if tasks.empty:
+                return []
+            tasks = tasks.to_dict('records')
+        elif not tasks:
             return []
+            
         if not isinstance(tasks, list):
             raise TypeError("tasks 必须是列表类型")
 
@@ -78,27 +89,22 @@ class TokenBasedScheduler(BaseScheduler):
                 raise ValueError("任务不能为 None")
             if not isinstance(task, dict):
                 raise TypeError("任务必须是字典类型")
-            if "tokens" not in task:
-                raise ValueError("任务必须包含 tokens 字段")
-                
-            tokens = task["tokens"]
-            if not isinstance(tokens, (int, float)):
-                raise ValueError("令牌数量必须是数字")
-            if tokens < 0:
-                raise ValueError("令牌数量不能为负数")
-                
-            if tokens <= self.token_threshold:
-                model = "tinyllama"
-                hardware = "apple_m1_pro"
-            else:
-                model = "llama3"
-                hardware = "rtx4050"
+            if "decoded_text" not in task or "input_tokens" not in task:
+                raise ValueError("任务必须包含 decoded_text 和 input_tokens 字段")
             
-            scheduled_tasks.append({
-                "tokens": tokens,
-                "model": model,
-                "hardware": hardware
-            })
+            # 获取输入和输出token数量
+            input_tokens = task["input_tokens"]
+            if isinstance(input_tokens, list):
+                input_tokens = len(input_tokens)
+            
+            scheduled_task = {
+                "input": task["decoded_text"],
+                "input_tokens_count": input_tokens,
+                "output_tokens_count": task.get("output_token_count", 0),
+                "model": self.model_name,
+                "hardware": self.hardware_config.get("device_type", "gpu")
+            }
+            scheduled_tasks.append(scheduled_task)
 
         return scheduled_tasks
 

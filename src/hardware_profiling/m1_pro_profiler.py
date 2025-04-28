@@ -4,6 +4,7 @@ import sys
 import time
 import ctypes
 import logging
+import psutil
 from ctypes import c_uint, c_ulong, c_ulonglong, c_int, c_char_p, byref, create_string_buffer, POINTER, c_void_p, Structure, CDLL
 from .base_profiler import HardwareProfiler
 from toolbox.logger import get_logger
@@ -61,9 +62,10 @@ class M1ProProfiler(HardwareProfiler):
         
         Args:
             config: 配置参数
-                - device_id: GPU 设备 ID
-                - idle_power: 空闲功耗（可选，默认 10W）
-                - max_power: 最大功耗（可选，默认 115W）
+                - device_type: 设备类型（默认为 'cpu_gpu'）
+                - idle_power: 空闲功耗（默认 10W）
+                - max_power: 最大功耗（默认 115W）
+                - sample_interval: 采样间隔（默认 200ms）
             skip_nvml: 是否跳过NVML初始化
         """
         super().__init__(config)
@@ -71,60 +73,67 @@ class M1ProProfiler(HardwareProfiler):
         self.logger.info("Logger initialized for %s", __name__)
         
         # 设置默认配置
-        self.config = {
-            'device_id': 0,
-            'idle_power': 10.0,  # 默认空闲功耗
-            'max_power': 115.0,  # 默认最大功耗
-            'sample_interval': 0.1,  # 采样间隔（秒）
-        }
+        self.device_type = config.get('device_type', 'cpu_gpu')
+        self.idle_power = config.get('idle_power', 10.0)
+        self.max_power = config.get('max_power', 115.0)
+        self.sample_interval = config.get('sample_interval', 200)
         
-        # 更新用户配置
-        self.config.update(config)
-        
-        # 初始化 NVML
-        self.nvml = None
-        self.device = None
-        self.is_test_mode = os.environ.get("TEST_MODE", "").lower() == "true"
+        # 初始化状态
+        self.initialized = False
+        self.nvml_initialized = False
+        self.device_handle = None
+        self.is_test_mode = os.getenv('TEST_MODE') == '1'
         
         # 即使在测试模式下，也要验证设备ID的有效性
         if self.config['device_id'] > 8:  # 假设最多支持8个GPU
             raise ValueError(f"无效的设备ID: {self.config['device_id']}")
             
-        if not skip_nvml and nvml_lib is not None:
+        # 初始化 NVML
+        if not skip_nvml and not self.is_test_mode:
             try:
-                # 初始化NVML
-                ret = nvml_lib.nvmlInit()
-                if ret != 0:
-                    error_str = nvml_lib.nvmlErrorString(ret)
-                    logger.error(f"NVML初始化失败: {ret} ({error_str})")
-                    raise RuntimeError(f"NVML初始化失败: {ret} ({error_str})")
-                logger.info("NVML初始化成功")
-                
-                # 获取设备句柄
-                device_handle = c_void_p()
-                ret = nvml_lib.nvmlDeviceGetHandleByIndex(self.config['device_id'], byref(device_handle))
-                if ret != 0:
-                    error_str = nvml_lib.nvmlErrorString(ret)
-                    logger.error(f"获取设备句柄失败: {ret} ({error_str})")
-                    raise RuntimeError(f"获取设备句柄失败: {ret} ({error_str})")
-                self.device_handle = device_handle
-                logger.info(f"成功获取设备句柄: {self.device_handle.value}")
-                
-                # 获取设备名称
-                name_buffer = create_string_buffer(64)
-                ret = nvml_lib.nvmlDeviceGetName(self.device_handle, name_buffer, 64)
-                if ret != 0:
-                    error_str = nvml_lib.nvmlErrorString(ret)
-                    logger.error(f"获取设备名称失败: {ret} ({error_str})")
-                    raise RuntimeError(f"获取设备名称失败: {ret} ({error_str})")
-                self.device_name = name_buffer.value.decode('utf-8')
-                logger.info(f"成功获取设备名称: {self.device_name}")
-                
+                self._init_nvml()
             except Exception as e:
-                logger.error(f"NVML初始化过程中发生错误: {e}")
-                raise
+                self.logger.warning(f"NVML 初始化失败: {e}")
+                self.nvml_initialized = False
+        else:
+            self.logger.info("Test mode detected, skipping NVML initialization")
+            self.nvml_initialized = False
+        
+        self.initialized = True
+        
+    def _init_nvml(self):
+        try:
+            # 初始化NVML
+            ret = nvml_lib.nvmlInit()
+            if ret != 0:
+                error_str = nvml_lib.nvmlErrorString(ret)
+                logger.error(f"NVML初始化失败: {ret} ({error_str})")
+                raise RuntimeError(f"NVML初始化失败: {ret} ({error_str})")
+            logger.info("NVML初始化成功")
             
-        self.handle = None
+            # 获取设备句柄
+            device_handle = c_void_p()
+            ret = nvml_lib.nvmlDeviceGetHandleByIndex(self.config['device_id'], byref(device_handle))
+            if ret != 0:
+                error_str = nvml_lib.nvmlErrorString(ret)
+                logger.error(f"获取设备句柄失败: {ret} ({error_str})")
+                raise RuntimeError(f"获取设备句柄失败: {ret} ({error_str})")
+            self.device_handle = device_handle
+            logger.info(f"成功获取设备句柄: {self.device_handle.value}")
+            
+            # 获取设备名称
+            name_buffer = create_string_buffer(64)
+            ret = nvml_lib.nvmlDeviceGetName(self.device_handle, name_buffer, 64)
+            if ret != 0:
+                error_str = nvml_lib.nvmlErrorString(ret)
+                logger.error(f"获取设备名称失败: {ret} ({error_str})")
+                raise RuntimeError(f"获取设备名称失败: {ret} ({error_str})")
+            self.device_name = name_buffer.value.decode('utf-8')
+            logger.info(f"成功获取设备名称: {self.device_name}")
+            
+        except Exception as e:
+            logger.error(f"NVML初始化过程中发生错误: {e}")
+            raise
         
     def measure_power(self) -> float:
         """测量 GPU 的当前功率
@@ -133,7 +142,7 @@ class M1ProProfiler(HardwareProfiler):
             float: 当前功率（瓦特）
         """
         if nvml_lib is None or self.device_handle is None:
-            return self.config['idle_power']
+            return self.idle_power
             
         try:
             power = c_uint()
@@ -141,11 +150,11 @@ class M1ProProfiler(HardwareProfiler):
             if ret != 0:
                 error_str = nvml_lib.nvmlErrorString(ret)
                 logger.error(f"获取功率失败: {ret} ({error_str})")
-                return self.config['idle_power']
+                return self.idle_power
             return float(power.value) / 1000.0  # 转换为瓦特
         except Exception as e:
             logger.error(f"测量功率时发生错误: {e}")
-            return self.config['idle_power']
+            return self.idle_power
         
     def measure(self, task, input_tokens, output_tokens):
         """
@@ -266,4 +275,105 @@ class M1ProProfiler(HardwareProfiler):
             
     def __del__(self):
         """析构函数"""
-        self.cleanup() 
+        self.cleanup()
+
+    def profile_cpu(self) -> Dict[str, float]:
+        """分析 CPU 使用情况。
+        
+        Returns:
+            Dict[str, float]: CPU 使用指标
+        """
+        try:
+            cpu_percent = psutil.cpu_percent(interval=1)
+            cpu_freq = psutil.cpu_freq()
+            cpu_count = psutil.cpu_count()
+            
+            return {
+                "utilization": float(cpu_percent),
+                "frequency": float(cpu_freq.current) if cpu_freq else 0.0,
+                "core_count": float(cpu_count)
+            }
+        except Exception as e:
+            logger.error(f"获取 CPU 信息失败: {e}")
+            return {
+                "utilization": 0.0,
+                "frequency": 0.0,
+                "core_count": 0.0
+            }
+
+    def profile_gpu(self) -> Dict[str, float]:
+        """分析 GPU 使用情况。
+        
+        Returns:
+            Dict[str, float]: GPU 使用指标
+        """
+        if not self.initialized or not self.nvml_initialized or self.device_handle is None:
+            return {
+                "power_usage": 0.0,
+                "temperature": 0.0,
+                "utilization": 0.0,
+                "memory_utilization": 0.0
+            }
+        
+        try:
+            # 获取功率使用
+            power = self.measure_power()
+            
+            # 获取温度
+            temperature = nvml_lib.nvmlDeviceGetTemperature(self.device_handle, nvml_lib.NVML_TEMPERATURE_GPU)
+            
+            # 获取利用率
+            utilization = nvml_lib.nvmlDeviceGetUtilizationRates(self.device_handle)
+            gpu_util = float(utilization.gpu)
+            memory_util = float(utilization.memory)
+            
+            return {
+                "power_usage": power,
+                "temperature": float(temperature),
+                "utilization": gpu_util,
+                "memory_utilization": memory_util
+            }
+        except Exception as e:
+            logger.error(f"获取 GPU 信息失败: {e}")
+            return {
+                "power_usage": 0.0,
+                "temperature": 0.0,
+                "utilization": 0.0,
+                "memory_utilization": 0.0
+            }
+
+    def profile_memory(self) -> Dict[str, float]:
+        """分析内存使用情况。
+        
+        Returns:
+            Dict[str, float]: 内存使用指标
+        """
+        if not self.initialized or not self.nvml_initialized or self.device_handle is None:
+            return {
+                "total": 0.0,
+                "used": 0.0,
+                "free": 0.0,
+                "utilization": 0.0
+            }
+        
+        try:
+            info = nvml_lib.nvmlDeviceGetMemoryInfo(self.device_handle)
+            total = float(info.total)
+            used = float(info.used)
+            free = float(info.free)
+            utilization = (used / total) * 100 if total > 0 else 0
+            
+            return {
+                "total": total,
+                "used": used,
+                "free": free,
+                "utilization": utilization
+            }
+        except Exception as e:
+            logger.error(f"获取内存信息失败: {e}")
+            return {
+                "total": 0.0,
+                "used": 0.0,
+                "free": 0.0,
+                "utilization": 0.0
+            } 

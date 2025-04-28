@@ -6,6 +6,11 @@ __pycache__/
 # Plot files
 plot.png
 *.plot.png
+*.png
+output/*.png
+tests/*.png
+**/output/*.png
+**/tests/*.png
 
 # C extensions
 *.so
@@ -176,3 +181,30 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Model files
+models/
+**/models/
+*.bin
+*.safetensors
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.tflite
+*.gguf
+*.ggml
+*.ggjt
+*.ggjt.bin
+*.ggjt.safetensors
+*.ggjt.pth
+*.ggjt.pt
+*.ggjt.ckpt
+*.ggjt.h5
+*.ggjt.hdf5
+*.ggjt.onnx
+*.ggjt.pb
+*.ggjt.tflite

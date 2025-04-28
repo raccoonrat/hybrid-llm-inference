@@ -10,6 +10,7 @@ from src.model_zoo.base_model import BaseModel
 import os
 from src.scheduling.token_based_scheduler import TokenBasedScheduler
 from src.scheduling.base_allocator import BaseAllocator
+import yaml
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,25 +21,47 @@ is_test_mode = os.environ.get('TEST_MODE', '0') == '1'
 class TaskAllocator(BaseAllocator):
     """任务分配器类"""
     
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, hardware_config: Dict[str, Any], model_config: Dict[str, Any], device_name: str = "m1_pro"):
         """
         初始化任务分配器
         
         Args:
-            config: 配置字典，包含以下字段：
-                - hardware_config: 硬件配置
-                - model_config: 模型配置
+            hardware_config: 硬件配置
+            model_config: 模型配置
+            device_name: 设备名称，默认为 m1_pro
         """
-        if config is None:
-            raise ValueError("配置不能为 None")
-            
-        super().__init__(config)
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Logger initialized for %s", __name__)
+        
+        # 检查是否在测试模式下
+        self.is_test_mode = os.environ.get("TEST_MODE", "").lower() == "true"
+        
+        # 保存配置
+        self.hardware_config = hardware_config
+        self.model_config = model_config
+        
+        # 加载调度器配置
+        scheduler_config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'scheduler_config.yaml')
+        with open(scheduler_config_path, 'r', encoding='utf-8') as f:
+            self.scheduler_config = yaml.safe_load(f)
+        
+        # 获取设备配置
+        if not self.hardware_config:
+            # 从配置文件中读取硬件配置
+            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'hardware_config.yaml')
+            with open(config_path, 'r') as f:
+                hardware_configs = yaml.safe_load(f)
+            self.hardware_config = hardware_configs.get(device_name, {})
+            if not self.hardware_config:
+                raise ValueError(f"Missing {device_name} configuration in hardware_config.yaml")
+        
+        # 初始化性能分析器
+        self.profiler = get_profiler(device_name, self.hardware_config)
         
         # 初始化基本属性
-        self.hardware_config = config.get("hardware_config", {})
-        self.model_config = config.get("model_config", {})
         self.initialized = False
-
+        self.token_threshold = self.scheduler_config.get("scheduler", {}).get("token_threshold", 128)  # 从调度器配置中获取阈值
+        
         # 验证配置
         self._validate_config()
         
@@ -60,6 +83,15 @@ class TaskAllocator(BaseAllocator):
         for hardware_name, hardware_info in self.hardware_config.items():
             if not isinstance(hardware_info, dict):
                 raise ValueError(f"硬件 {hardware_name} 的配置必须是字典")
+            
+            # 设置默认值
+            if "device_type" not in hardware_info:
+                hardware_info["device_type"] = "gpu"
+            if "idle_power" not in hardware_info:
+                hardware_info["idle_power"] = 15.0
+            if "sample_interval" not in hardware_info:
+                hardware_info["sample_interval"] = 200
+            
             required_fields = ["device_type", "idle_power", "sample_interval"]
             for field in required_fields:
                 if field not in hardware_info:
@@ -98,14 +130,10 @@ class TaskAllocator(BaseAllocator):
         if total_tokens <= 0:
             raise ValueError("总令牌数必须大于 0")
         
-        if total_tokens <= 1000:
-            return "apple_m1_pro"
-        elif total_tokens <= 5000:
-            return "nvidia_rtx4050"
-        else:
-            return "nvidia_rtx4090"
+        # 由于只有 RTX 4050，所以直接返回
+        return "rtx4050"
     
-    def allocate(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def allocate(self, tasks: List[Dict[str, Any]], model_name: str) -> List[Dict[str, Any]]:
         """
         分配任务。
         
@@ -114,6 +142,7 @@ class TaskAllocator(BaseAllocator):
                 - input_tokens: 输入令牌数
                 - output_tokens: 输出令牌数
                 - model: 模型名称
+            model_name: 模型名称
                 
         Returns:
             分配后的任务列表，每个任务包含以下字段：
@@ -132,22 +161,21 @@ class TaskAllocator(BaseAllocator):
             # 验证任务
             if not isinstance(task, dict):
                 raise ValueError("任务必须是字典")
-            if "input_tokens" not in task or "output_tokens" not in task or "model" not in task:
-                raise ValueError("任务必须包含 input_tokens、output_tokens 和 model 字段")
+            if "input_tokens_count" not in task or "output_tokens_count" not in task:
+                raise ValueError("任务必须包含 input_tokens_count 和 output_tokens_count 字段")
             
-            input_tokens = task["input_tokens"]
-            output_tokens = task["output_tokens"]
-            model = task["model"]
+            input_tokens = task["input_tokens_count"]
+            output_tokens = task["output_tokens_count"]
             
             # 验证令牌数
             if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
-                raise ValueError("input_tokens 和 output_tokens 必须是整数")
+                raise ValueError("input_tokens_count 和 output_tokens_count 必须是整数")
             if input_tokens < 0 or output_tokens < 0:
-                raise ValueError("input_tokens 和 output_tokens 不能为负数")
+                raise ValueError("input_tokens_count 和 output_tokens_count 不能为负数")
             
             # 验证模型
-            if model not in self.model_config["models"]:
-                raise ValueError(f"未知的模型: {model}")
+            if model_name not in self.model_config["models"]:
+                raise ValueError(f"未知的模型: {model_name}")
             
             # 选择硬件
             total_tokens = input_tokens + output_tokens
@@ -157,12 +185,12 @@ class TaskAllocator(BaseAllocator):
             if hardware not in self.hardware_config:
                 raise ValueError(f"未知的硬件: {hardware}")
             
-            allocated_tasks.append({
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "model": model,
+            allocated_task = task.copy()
+            allocated_task.update({
+                "model": model_name,
                 "hardware": hardware
             })
+            allocated_tasks.append(allocated_task)
         
         return allocated_tasks
     

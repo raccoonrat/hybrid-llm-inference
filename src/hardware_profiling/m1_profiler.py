@@ -1,9 +1,14 @@
+"""Apple M1 处理器性能分析器。"""
+
 import logging
-from typing import Dict, Any, Optional
+import time
+from typing import Dict, Any, Optional, Callable
+import psutil
 
 from src.hardware_profiling.base_profiler import HardwareProfiler
+from src.toolbox.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class M1Profiler(HardwareProfiler):
     """Apple M1 处理器性能分析器。"""
@@ -13,24 +18,20 @@ class M1Profiler(HardwareProfiler):
 
         Args:
             config: 配置字典，必须包含：
-                - device_type: 设备类型，必须为 "m1"
+                - device_id: 设备 ID
                 - idle_power: 空闲功耗（瓦特）
                 - sample_interval: 采样间隔（毫秒）
         """
         super().__init__(config)
-        self._validate_config()
-        
-        self.device_type = config["device_type"]
+        self.device_id = config.get("device_id", 0)
         self.idle_power = config.get("idle_power", 15.0)  # 默认空闲功耗
         self.sample_interval = config.get("sample_interval", 200)  # 默认采样间隔
+        self._validate_config()
         
     def _validate_config(self) -> None:
         """验证配置参数。"""
         if not self.config:
             raise ValueError("配置不能为空")
-            
-        if self.config.get("device_type") != "m1":
-            raise ValueError("设备类型必须为 m1")
             
         if "idle_power" in self.config and not isinstance(self.config["idle_power"], (int, float)):
             raise ValueError("空闲功耗必须是数字")
@@ -47,29 +48,81 @@ class M1Profiler(HardwareProfiler):
         # 由于无法直接测量 M1 功耗，返回预设值
         return self.idle_power
     
-    def measure(self, task: Dict[str, Any]) -> Dict[str, float]:
-        """测量任务执行的性能指标。
+    def measure(self, task: Callable, input_tokens: int, output_tokens: int) -> Dict[str, float]:
+        """测量任务的性能指标。
 
         Args:
-            task: 任务信息字典
+            task: 要执行的任务
+            input_tokens: 输入token数量
+            output_tokens: 输出token数量
 
         Returns:
-            性能指标字典，包含：
-            - energy: 能耗（焦耳）
-            - runtime: 运行时间（秒）
-            - throughput: 吞吐量（token/秒）
-            - energy_per_token: 每 token 能耗（焦耳/token）
+            Dict[str, float]: 性能指标字典
         """
-        # 模拟测量结果
-        runtime = 1.0  # 假设运行时间为 1 秒
-        energy = self.idle_power * runtime
-        
-        input_tokens = task.get("input_tokens", 0)
-        output_tokens = task.get("output_tokens", 0)
-        total_tokens = input_tokens + output_tokens
-        
-        return self._compute_metrics(energy, runtime, total_tokens)
+        try:
+            # 记录开始时间
+            start_time = time.time()
+            
+            # 执行任务
+            task()
+            
+            # 记录结束时间
+            end_time = time.time()
+            
+            # 计算指标
+            runtime = end_time - start_time
+            total_tokens = input_tokens + output_tokens
+            throughput = total_tokens / runtime if runtime > 0 else 0
+            energy = self.idle_power * runtime  # 简化的能耗计算
+            energy_per_token = energy / total_tokens if total_tokens > 0 else 0
+            
+            return {
+                "energy": energy,
+                "runtime": runtime,
+                "throughput": throughput,
+                "energy_per_token": energy_per_token
+            }
+            
+        except Exception as e:
+            self.logger.error(f"测量失败: {e}")
+            raise
     
     def cleanup(self) -> None:
         """清理资源。"""
-        pass 
+        pass
+
+    def profile_cpu(self) -> Dict[str, float]:
+        """测量CPU使用率。
+
+        Returns:
+            Dict[str, float]: CPU使用率指标
+        """
+        return {
+            "cpu_usage": psutil.cpu_percent(interval=1),
+            "cpu_freq": psutil.cpu_freq().current if psutil.cpu_freq() else 0.0
+        }
+
+    def profile_gpu(self) -> Dict[str, float]:
+        """测量GPU使用率。
+
+        Returns:
+            Dict[str, float]: GPU使用率指标
+        """
+        # M1芯片的GPU使用率无法直接测量，返回默认值
+        return {
+            "gpu_usage": 0.0,
+            "memory_usage": 0.0
+        }
+
+    def profile_memory(self) -> Dict[str, float]:
+        """测量内存使用情况。
+
+        Returns:
+            Dict[str, float]: 内存使用指标
+        """
+        memory = psutil.virtual_memory()
+        return {
+            "total_memory": memory.total,
+            "used_memory": memory.used,
+            "free_memory": memory.free
+        } 

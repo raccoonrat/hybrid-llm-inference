@@ -7,7 +7,7 @@ from toolbox.logger import get_logger
 from model_zoo import get_model
 import os
 import numpy as np
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 from .token_processor import TokenProcessor
 import logging
 from collections import Counter
@@ -16,6 +16,8 @@ import re
 import time
 import psutil
 import tempfile
+from .data_processor import DataProcessor
+from .alpaca_loader import AlpacaLoader
 
 # 设置中文字体
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
@@ -23,150 +25,147 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 logging.basicConfig(level=logging.INFO)
 
-class DataProcessor:
-    """数据处理基类。"""
+logger = get_logger(__name__)
+
+class MockTokenizer:
+    """测试模式使用的模拟 tokenizer。"""
+    
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
-
-    def validate_data(self, data: Union[pd.DataFrame, List[Dict]]) -> bool:
-        """验证数据格式。
-
-        Args:
-            data: 输入数据
-
-        Returns:
-            bool: 数据是否有效
-        """
-        if isinstance(data, pd.DataFrame):
-            return not data.empty
-        elif isinstance(data, list):
-            return len(data) > 0
-        return False
-
-    def process_batch(self, data: Union[pd.DataFrame, List[Dict]]) -> pd.DataFrame:
-        """处理数据批次。
+        """初始化模拟 tokenizer。"""
+        pass
+        
+    def __call__(self, text: str, return_tensors: str = "pt") -> Dict[str, List[int]]:
+        """模拟 tokenizer 的调用。
 
         Args:
-            data: 输入数据
+            text: 输入文本
+            return_tensors: 返回张量类型（在测试模式下被忽略）
 
         Returns:
-            pd.DataFrame: 处理后的数据
+            Dict[str, List[int]]: 模拟的 tokenizer 输出
         """
-        if not self.validate_data(data):
-            raise ValueError("无效的输入数据")
-        return pd.DataFrame(data)
-
-class AlpacaLoader:
-    """Alpaca数据集加载器。"""
-    def __init__(self, data_path: str):
-        self.data_path = data_path
-        self.logger = logging.getLogger(__name__)
-
-    def validate_entry(self, entry: Dict) -> bool:
-        """验证数据条目。
-
-        Args:
-            entry: 数据条目
-
-        Returns:
-            bool: 条目是否有效
-        """
-        required_fields = ['instruction', 'input', 'output']
-        return all(field in entry for field in required_fields)
-
-    def get_statistics(self) -> Dict:
-        """获取数据集统计信息。
-
-        Returns:
-            Dict: 统计信息
-        """
-        stats = {
-            'total_entries': 0,
-            'valid_entries': 0,
-            'invalid_entries': 0
+        # 简单地将文本转换为字符的 ASCII 码列表
+        input_ids = [ord(c) for c in text]
+        attention_mask = [1] * len(input_ids)
+        
+        return {
+            "input_ids": [input_ids],
+            "attention_mask": [attention_mask]
         }
-        return stats
+        
+    def encode(self, text: str) -> List[int]:
+        """模拟 encode 方法。
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            List[int]: 模拟的 token 列表
+        """
+        return [ord(c) for c in text]
 
 class TokenProcessing:
-    def __init__(self, model_path: str):
-        """初始化TokenProcessing类。
+    """令牌处理类，用于处理模型推理过程中的令牌。"""
+    
+    def __init__(self, model_name: str, model_config: Dict[str, Any]):
+        """初始化令牌处理器。
 
         Args:
-            model_path: 模型路径
+            model_name: 模型名称
+            model_config: 模型配置
         """
-        self.model_path = model_path
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
-        self.processor = TokenProcessor(model_path)
-        
-    def process_tokens(self, texts: Union[List[str], pd.Series]) -> pd.DataFrame:
-        """处理文本并返回包含token的DataFrame
-
-        Args:
-            texts: 输入文本列表或Series
-
-        Returns:
-            DataFrame包含input_tokens和decoded_text列
-
-        Raises:
-            ValueError: 当输入无效时
-            MemoryError: 当内存不足时
-            RuntimeError: 当处理过程中发生错误时
-        """
-        if isinstance(texts, pd.Series):
-            texts = texts.tolist()
+        self.model_name = model_name
+        self.model_config = model_config
+        self.initialized = False
+        self.tokenizer = None
+    
+    def initialize(self) -> None:
+        """初始化令牌处理器。"""
+        if self.initialized:
+            return
             
-        if not texts:
-            self.logger.warning("输入数据为空")
-            return pd.DataFrame(columns=["input_tokens", "decoded_text"])
-            
-        # 检查输入大小
-        total_size = sum(len(str(text)) for text in texts)
-        if total_size > 100 * 1024 * 1024:  # 100MB限制
-            raise ValueError("输入数据太大，请分批处理")
-            
+        # 初始化模型特定的令牌处理逻辑
+        self._init_model_specific_processing()
+        self.initialized = True
+        logger.info(f"已初始化模型 {self.model_name} 的令牌处理器")
+    
+    def _init_model_specific_processing(self) -> None:
+        """初始化模型特定的令牌处理逻辑。"""
         try:
-            # 将非字符串类型转换为字符串
-            texts = [str(text) if text is not None else "" for text in texts]
-            
-            # 检查编码
-            for text in texts:
-                try:
-                    text.encode('utf-8')
-                except UnicodeEncodeError:
-                    self.logger.warning(f"发现非UTF-8编码的文本，将尝试使用其他编码")
-                    try:
-                        text.encode('gbk')
-                    except UnicodeEncodeError:
-                        raise ValueError("文本包含无法处理的字符编码")
-            
-            # 批量处理
-            tokens = self.processor.batch_process(texts)
-            
-            # 检查内存使用
-            process = psutil.Process()
-            if process.memory_info().rss > 1024 * 1024 * 1024:  # 1GB限制
-                raise MemoryError("内存使用过高，请减少输入数据量")
-            
-            # 解码
-            decoded_texts = []
-            for i, t in enumerate(tokens):
-                try:
-                    decoded = self.processor.decode(t)
-                    decoded_texts.append(decoded)
-                except Exception as e:
-                    self.logger.error(f"解码第{i}个token时出错: {str(e)}")
-                    decoded_texts.append("")
-            
-            return pd.DataFrame({
-                "input_tokens": tokens,
-                "decoded_text": decoded_texts
-            })
+            # 检查测试模式
+            if os.getenv("TEST_MODE") == "1":
+                logger.info("测试模式：使用模拟 tokenizer")
+                self.tokenizer = MockTokenizer()
+                return
+
+            # 构建本地模型路径
+            model_path = os.path.join("models", self.model_name)
+            if not os.path.exists(model_path):
+                raise RuntimeError(f"模型目录不存在: {model_path}")
+
+            # 检查必要的文件
+            required_files = ["tokenizer.json", "tokenizer_config.json"]
+            missing_files = [f for f in required_files if not os.path.exists(os.path.join(model_path, f))]
+            if missing_files:
+                raise RuntimeError(f"模型目录缺少必要文件: {', '.join(missing_files)}")
+
+            from transformers import AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                trust_remote_code=self.model_config.get('trust_remote_code', True),
+                local_files_only=True  # 强制只使用本地文件
+            )
+            logger.info(f"已从本地目录加载 tokenizer: {model_path}")
             
         except Exception as e:
-            self.logger.error(f"处理token时出错: {str(e)}")
-            raise RuntimeError(f"处理token时出错: {str(e)}")
-        
+            logger.error(f"初始化tokenizer失败: {str(e)}")
+            raise RuntimeError(f"初始化tokenizer失败: {str(e)}")
+    
+    def process_tokens(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """处理令牌。
+
+        Args:
+            tasks: 任务列表
+
+        Returns:
+            List[Dict[str, Any]]: 处理后的任务列表
+        """
+        try:
+            if not self.initialized:
+                self.initialize()
+                
+            processed_tasks = []
+            for task in tasks:
+                # 使用tokenizer处理输入
+                input_text = task.get("input", "")
+                tokens = self.tokenizer(input_text, return_tensors="pt")
+                
+                processed_task = {
+                    **task,
+                    "input_tokens": tokens["input_ids"][0],
+                    "attention_mask": tokens["attention_mask"][0],
+                    "decoded_text": input_text  # 添加 decoded_text 字段
+                }
+                processed_tasks.append(processed_task)
+                
+            return processed_tasks
+        except Exception as e:
+            logger.error(f"处理令牌失败: {str(e)}")
+            raise RuntimeError(f"处理令牌失败: {str(e)}")
+    
+    def _apply_model_specific_processing(self, tokens: List[int]) -> List[int]:
+        """应用模型特定的令牌处理逻辑。
+
+        Args:
+            tokens: 输入令牌序列
+
+        Returns:
+            处理后的令牌序列
+        """
+        if not self.initialized:
+            self.initialize()
+        return tokens
+
     def get_token_data(self, df: pd.DataFrame, format: str = 'dataframe') -> Union[pd.DataFrame, Dict]:
         """从DataFrame中获取token数据
 
@@ -186,7 +185,7 @@ class TokenProcessing:
             raise ValueError("不支持的格式，必须是'dataframe'或'dict'")
             
         if df is None or df.empty:
-            self.logger.warning("输入DataFrame为空")
+            logger.warning("输入DataFrame为空")
             if format == 'dataframe':
                 return pd.DataFrame(columns=["input_tokens", "decoded_text"])
             return {}
@@ -235,12 +234,12 @@ class TokenProcessing:
                 
             # 记录处理时间
             process_time = time.time() - start_time
-            self.logger.info(f"处理 {len(df)} 行数据用时: {process_time:.2f}秒")
+            logger.info(f"处理 {len(df)} 行数据用时: {process_time:.2f}秒")
             
             return output
             
         except Exception as e:
-            self.logger.error(f"获取token数据时出错: {str(e)}")
+            logger.error(f"获取token数据时出错: {str(e)}")
             raise RuntimeError(f"获取token数据时出错: {str(e)}")
             
     def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict[str, float]:
@@ -262,8 +261,78 @@ class TokenProcessing:
             raise ValueError("输入DataFrame不能为None")
 
         if df.empty:
-            self.logger.warning("输入数据为空")
+            logger.warning("输入数据为空")
             return {}
+
+        # 如果提供了保存路径，先进行验证
+        if save_path:
+            # 基本路径验证
+            if not save_path or not isinstance(save_path, str) or save_path.isspace():
+                raise ValueError("保存路径不能为空")
+
+            # 规范化路径
+            save_path = Path(save_path)
+            if not save_path.is_absolute():
+                raise ValueError("必须使用绝对路径")
+
+            # 检查文件扩展名
+            if save_path.suffix.lower() != '.png':
+                raise ValueError("必须是.png格式")
+
+            # 检查文件名
+            filename = save_path.name
+            if not filename or filename.isspace() or filename.startswith('.') or filename.endswith('.'):
+                raise ValueError("无效的文件名")
+
+            # Windows特定检查
+            if os.name == 'nt':
+                # 检查Windows保留名称
+                reserved_names = {'con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4',
+                                'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3',
+                                'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'}
+                name_without_ext = save_path.stem.lower()
+                if name_without_ext in reserved_names:
+                    raise ValueError("文件名不能使用Windows保留名称")
+
+                # 检查Windows路径长度
+                if len(str(save_path)) > 260:
+                    raise ValueError("路径长度超过系统限制")
+
+                # 检查Windows非法字符
+                invalid_chars = '<>:"|?*\0'
+                if any(char in filename for char in invalid_chars):
+                    raise ValueError("文件名包含无效字符")
+
+                # 检查UNC路径
+                if str(save_path).startswith('\\\\'):
+                    raise ValueError("无法访问网络路径")
+
+                # 检查系统目录
+                system_dirs = ['C:\\Windows', 'C:\\Windows\\System32']
+                if any(str(save_path).startswith(sys_dir) for sys_dir in system_dirs):
+                    raise ValueError("不能保存到系统目录")
+
+            # 检查目录是否存在
+            save_dir = save_path.parent
+            if not save_dir.exists():
+                try:
+                    save_dir.mkdir(parents=True)
+                except (OSError, PermissionError):
+                    raise ValueError("目录不存在且无法创建")
+
+            # 检查写入权限
+            try:
+                if save_path.exists():
+                    # 如果文件已存在，尝试打开它进行写入
+                    with open(save_path, 'a'):
+                        pass
+                else:
+                    # 如果文件不存在，尝试在目录中创建测试文件
+                    test_file = save_dir / '.test_write'
+                    test_file.touch()
+                    test_file.unlink()
+            except (OSError, PermissionError):
+                raise ValueError("没有写入权限")
 
         try:
             # 检查内存使用
@@ -274,7 +343,7 @@ class TokenProcessing:
             # 确定使用哪一列
             token_column = 'input_tokens' if 'input_tokens' in df.columns else 'token'
             if token_column not in df.columns:
-                self.logger.warning(f"DataFrame中缺少所需的列: {token_column}")
+                logger.warning(f"DataFrame中缺少所需的列: {token_column}")
                 return {}
 
             # 展平所有token列表并计算频率分布
@@ -303,10 +372,10 @@ class TokenProcessing:
 
                 # 报告进度
                 if i % 10000 == 0:
-                    self.logger.info(f"已处理 {i}/{len(df)} 行数据")
+                    logger.info(f"已处理 {i}/{len(df)} 行数据")
 
             if not all_tokens:
-                self.logger.warning("没有找到有效的token")
+                logger.warning("没有找到有效的token")
                 return {}
 
             # 计算分布
@@ -320,45 +389,52 @@ class TokenProcessing:
                 try:
                     self._save_distribution_plot(distribution, save_path)
                 except ValueError as e:
-                    self.logger.error(f"保存分布图时出错: {str(e)}")
+                    logger.error(f"保存分布图时出错: {str(e)}")
                     raise
                 except Exception as e:
-                    self.logger.error(f"保存分布图时出错: {str(e)}")
-                    raise ValueError(f"保存分布图时出错: {str(e)}")
+                    logger.error(f"保存分布图时出错: {str(e)}")
+                    raise ValueError(f"保存分布图失败: {str(e)}")
 
             return distribution
 
         except MemoryError as e:
-            self.logger.error(f"内存不足: {str(e)}")
+            logger.error(f"内存不足: {str(e)}")
             raise
         except ValueError as e:
-            self.logger.error(f"无效的输入或路径: {str(e)}")
+            logger.error(f"无效的输入或路径: {str(e)}")
             raise
         except Exception as e:
-            self.logger.error(f"计算分布时出错: {str(e)}")
+            logger.error(f"计算分布时出错: {str(e)}")
             raise RuntimeError(f"计算分布时出错: {str(e)}")
         
-    def _save_distribution_plot(self, distribution: Dict[str, float], save_path: str) -> None:
+    def _save_distribution_plot(self, distribution: Dict[str, float], save_path: Union[str, Path]) -> None:
         """保存分布图到指定路径。
 
         Args:
             distribution: token分布字典
-            save_path: 保存路径
+            save_path: 保存路径，可以是字符串或Path对象
 
         Raises:
             ValueError: 当路径无效或没有写入权限时
         """
-        if not save_path or not isinstance(save_path, str):
-            raise ValueError("保存路径不能为空")
+        # 基本路径验证
+        if save_path is None:
+            raise ValueError("保存路径不能为None")
 
         # 规范化路径
-        save_path = os.path.abspath(save_path)
-        save_dir = os.path.dirname(save_path)
-        filename = os.path.basename(save_path)
+        if isinstance(save_path, str):
+            if not save_path.strip():
+                raise ValueError("保存路径不能为空")
+            save_path = Path(save_path)
 
         # 检查文件扩展名
-        if not filename.lower().endswith('.png'):
-            raise ValueError("文件必须是PNG格式")
+        if save_path.suffix.lower() != '.png':
+            raise ValueError("必须是.png格式")
+
+        # 检查文件名
+        filename = save_path.name
+        if not filename or filename.isspace() or filename.startswith('.') or filename.endswith('.'):
+            raise ValueError("无效的文件名")
 
         # Windows特定检查
         if os.name == 'nt':
@@ -366,59 +442,67 @@ class TokenProcessing:
             reserved_names = {'con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4',
                             'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3',
                             'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'}
-            name_without_ext = os.path.splitext(filename)[0].lower()
+            name_without_ext = save_path.stem.lower()
             if name_without_ext in reserved_names:
                 raise ValueError("文件名不能使用Windows保留名称")
 
             # 检查Windows路径长度
-            if len(save_path) > 260:
-                raise ValueError("文件路径过长")
+            if len(str(save_path)) > 260:
+                raise ValueError("路径长度超过系统限制")
 
             # 检查Windows非法字符
-            invalid_chars = r'[<>:"/\\|?*]'
-            if re.search(invalid_chars, filename):
-                raise ValueError("文件名包含非法字符")
+            invalid_chars = '<>:"|?*\0'
+            if any(char in filename for char in invalid_chars):
+                raise ValueError("文件名包含无效字符")
 
-        # 检查目录是否存在，如果不存在则创建
-        if not os.path.exists(save_dir):
+            # 检查UNC路径
+            if str(save_path).startswith('\\\\'):
+                raise ValueError("无法访问网络路径")
+
+            # 检查系统目录
+            system_dirs = ['C:\\Windows', 'C:\\Windows\\System32']
+            if any(str(save_path).startswith(sys_dir) for sys_dir in system_dirs):
+                raise ValueError("不能保存到系统目录")
+
+        # 检查目录是否存在
+        save_dir = save_path.parent
+        if not save_dir.exists():
             try:
-                os.makedirs(save_dir)
-            except Exception as e:
-                raise ValueError(f"无法创建目录: {str(e)}")
+                save_dir.mkdir(parents=True)
+            except (OSError, PermissionError):
+                raise ValueError("目录不存在且无法创建")
 
         # 检查写入权限
-        if os.path.exists(save_dir):
-            test_file = os.path.join(save_dir, '.test_write')
-            try:
-                with open(test_file, 'w') as f:
-                    f.write('test')
-                os.remove(test_file)
-            except Exception:
-                raise ValueError("没有写入权限")
+        try:
+            if save_path.exists():
+                # 如果文件已存在，尝试打开它进行写入
+                with open(save_path, 'a'):
+                    pass
+            else:
+                # 如果文件不存在，尝试在目录中创建测试文件
+                test_file = save_dir / '.test_write'
+                test_file.touch()
+                test_file.unlink()
+        except (OSError, PermissionError):
+            raise ValueError("没有写入权限")
+
+        # 创建并保存图表
+        plt.figure(figsize=(10, 6))
+        plt.bar(distribution.keys(), distribution.values())
+        plt.title('Token Distribution')
+        plt.xlabel('Token')
+        plt.ylabel('Frequency')
+        plt.xticks(rotation=45)
 
         try:
-            # 创建图表
-            plt.figure(figsize=(12, 6))
-            plt.clf()
-            tokens = list(distribution.keys())
-            frequencies = list(distribution.values())
-            
-            # 使用seaborn创建条形图
-            sns.barplot(x=tokens, y=frequencies)
-            plt.xticks(rotation=45, ha='right')
-            plt.title('Token分布')
-            plt.xlabel('Token')
-            plt.ylabel('频率')
-            
-            # 保存图表
-            plt.tight_layout()
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.savefig(str(save_path))
             plt.close()
-            
-            self.logger.info(f"分布图已保存到: {save_path}")
+            logging.info(f"分布图已保存到: {save_path}")
         except Exception as e:
             plt.close()
-            raise ValueError(f"保存分布图时出错: {str(e)}")
+            if isinstance(e, PermissionError):
+                raise ValueError("没有写入权限")
+            raise ValueError(f"保存图表失败: {str(e)}")
 
     def cleanup(self) -> None:
         """清理资源。
@@ -426,7 +510,14 @@ class TokenProcessing:
         清理所有打开的文件句柄和图表资源。
         """
         try:
+            # 清理tokenizer
+            if self.tokenizer is not None:
+                del self.tokenizer
+                self.tokenizer = None
+            
             # 关闭所有matplotlib图表
             plt.close('all')
+            
+            self.initialized = False
         except Exception as e:
-            self.logger.warning(f"清理图表资源时出错: {str(e)}")
+            logger.warning(f"清理资源时出错: {str(e)}")

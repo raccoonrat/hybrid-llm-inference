@@ -1,5 +1,7 @@
 # hybrid-llm-inference/src/optimization_engine/tradeoff_analyzer.py
 import json
+import pickle
+import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from toolbox.logger import get_logger
@@ -23,10 +25,10 @@ class TradeoffAnalyzer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logger = get_logger(__name__)
-        self.models = {name: get_model(name, cfg.get("mode", "local"), cfg) 
+        self.models = {name: get_model(name, cfg) 
                       for name, cfg in model_config["models"].items()}
 
-    def analyze(self, model_name="llama3"):
+    def analyze(self, model_name="tinyllama"):
         """
         Analyze energy-runtime tradeoffs for different λ values.
         
@@ -41,7 +43,9 @@ class TradeoffAnalyzer:
             raise FileNotFoundError(f"Token distribution not found")
 
         with open(self.token_distribution_path, 'rb') as f:
-            distribution = pickle.load(f).get('distribution', {})
+            distribution = pickle.load(f)
+            
+        self.logger.debug(f"Loaded distribution: {distribution}")
 
         model = self.models.get(model_name)
         if not model:
@@ -57,13 +61,18 @@ class TradeoffAnalyzer:
             total_runtime = 0
             total_tasks = 0
 
-            for input_tokens, input_freq in distribution['input_distribution'].items():
-                for output_tokens, output_freq in distribution['output_distribution'].items():
-                    # Simulate task
-                    task = lambda: model.infer("Sample prompt")  # Simplified task
-                    # Choose system based on paper's default thresholds (T_in=32, T_out=32)
+            for input_tokens, input_freq in distribution.get("input_distribution", {}).items():
+                for output_tokens, output_freq in distribution.get("output_distribution", {}).items():
+                    # 选择系统
                     system = "m1_pro" if input_tokens <= 32 and output_tokens <= 32 else "a100"
-                    metrics = cost_function.compute(task, input_tokens, output_tokens, system)
+                    # 获取性能指标
+                    metrics = cost_function.calculate(
+                        input_tokens,
+                        output_tokens,
+                        task=lambda: model.infer("Sample prompt"),
+                        system=system,
+                        return_metrics=True
+                    )
                     total_energy += metrics["energy"] * input_freq * output_freq
                     total_runtime += metrics["runtime"] * input_freq * output_freq
                     total_tasks += input_freq * output_freq

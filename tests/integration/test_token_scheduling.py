@@ -8,7 +8,7 @@ from scheduling.task_allocator import TaskAllocator
 
 def load_configs():
     """加载配置文件"""
-    model_config_path = "configs/models/tinyllama.yaml"
+    model_config_path = "configs/model_config.yaml"
     hardware_config_path = "configs/hardware.yaml"
     
     with open(model_config_path, "r") as f:
