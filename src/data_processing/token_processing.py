@@ -7,7 +7,7 @@ from toolbox.logger import get_logger
 from model_zoo import get_model
 import os
 import numpy as np
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 from .token_processor import TokenProcessor
 import logging
 from collections import Counter
@@ -25,92 +25,98 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 logging.basicConfig(level=logging.INFO)
 
+logger = get_logger(__name__)
+
 class TokenProcessing:
-    def __init__(self, model_path: str):
-        """初始化TokenProcessing类。
+    """令牌处理类，用于处理模型推理过程中的令牌。"""
+    
+    def __init__(self, model_name: str, model_config: Dict[str, Any]):
+        """初始化令牌处理器。
 
         Args:
-            model_path: 模型路径
+            model_name: 模型名称
+            model_config: 模型配置
         """
-        self.model_path = model_path
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
-        self.processor = TokenProcessor(model_path)
-        
-    def process_tokens(self, texts: Union[List[str], pd.Series]) -> pd.DataFrame:
-        """处理文本并返回包含token的DataFrame
+        self.model_name = model_name
+        self.model_config = model_config
+        self.initialized = False
+    
+    def initialize(self) -> None:
+        """初始化令牌处理器。"""
+        if self.initialized:
+            return
+            
+        # 初始化模型特定的令牌处理逻辑
+        self._init_model_specific_processing()
+        self.initialized = True
+        logger.info(f"已初始化模型 {self.model_name} 的令牌处理器")
+    
+    def _init_model_specific_processing(self) -> None:
+        """初始化模型特定的令牌处理逻辑。"""
+        # 根据模型配置初始化特定的处理逻辑
+        pass
+    
+    def process_tokens(self, data: List[Dict[str, Any]]) -> pd.DataFrame:
+        """处理令牌序列。
 
         Args:
-            texts: 输入文本列表或Series
+            data: 输入数据列表，每个元素是一个字典
 
         Returns:
-            DataFrame包含input_tokens和decoded_text列
-
-        Raises:
-            ValueError: 当输入无效时
-            MemoryError: 当内存不足时
-            RuntimeError: 当处理过程中发生错误时
+            pd.DataFrame: 包含以下列的DataFrame：
+                - decoded_text: 解码后的文本
+                - input_tokens: 输入令牌列表
         """
-        if isinstance(texts, pd.Series):
-            texts = texts.tolist()
+        if not self.initialized:
+            raise RuntimeError("令牌处理器未初始化")
             
-        if isinstance(texts, pd.DataFrame):
-            if texts.empty:
-                self.logger.warning("输入数据为空")
-                return pd.DataFrame(columns=["input_tokens", "decoded_text"])
-            texts = texts.values.tolist()
+        # 确保输入是列表
+        if not isinstance(data, list):
+            data = [data]
             
-        if not texts:
-            self.logger.warning("输入数据为空")
-            return pd.DataFrame(columns=["input_tokens", "decoded_text"])
+        # 处理每个输入
+        processed_data = []
+        for item in data:
+            # 确保item是字典
+            if not isinstance(item, dict):
+                item = {"text": str(item)}
+                
+            # 获取文本
+            text = str(item.get("text", ""))
             
-        # 检查输入大小
-        total_size = sum(len(str(text)) for text in texts)
-        if total_size > 100 * 1024 * 1024:  # 100MB限制
-            raise ValueError("输入数据太大，请分批处理")
+            # 处理令牌
+            tokens = self._apply_model_specific_processing([ord(c) for c in text])
             
-        try:
-            # 将非字符串类型转换为字符串
-            texts = [str(text) if text is not None else "" for text in texts]
+            # 创建结果字典
+            result = {
+                "decoded_text": text,
+                "input_tokens": tokens
+            }
+            processed_data.append(result)
             
-            # 检查编码
-            for text in texts:
-                try:
-                    text.encode('utf-8')
-                except UnicodeEncodeError:
-                    self.logger.warning(f"发现非UTF-8编码的文本，将尝试使用其他编码")
-                    try:
-                        text.encode('gbk')
-                    except UnicodeEncodeError:
-                        raise ValueError("文本包含无法处理的字符编码")
-            
-            # 批量处理
-            tokens = self.processor.batch_process(texts)
-            
-            # 检查内存使用
-            process = psutil.Process()
-            if process.memory_info().rss > 1024 * 1024 * 1024:  # 1GB限制
-                raise MemoryError("内存使用过高，请减少输入数据量")
-            
-            # 解码
-            decoded_texts = []
-            for i, t in enumerate(tokens):
-                try:
-                    decoded = self.processor.decode(t)
-                    decoded_texts.append(decoded)
-                except Exception as e:
-                    self.logger.error(f"解码第{i}个token时出错: {str(e)}")
-                    decoded_texts.append("")
-            
-            return pd.DataFrame({
-                "input_tokens": tokens,
-                "decoded_text": decoded_texts
-            })
-            
-        except Exception as e:
-            self.logger.error(f"处理token时出错: {str(e)}")
-            raise RuntimeError(f"处理token时出错: {str(e)}")
+        # 创建DataFrame
+        df = pd.DataFrame(processed_data)
         
+        # 确保必需的列存在
+        if "decoded_text" not in df.columns:
+            df["decoded_text"] = ""
+        if "input_tokens" not in df.columns:
+            df["input_tokens"] = [[]] * len(df)
+            
+        return df
+    
+    def _apply_model_specific_processing(self, tokens: List[int]) -> List[int]:
+        """应用模型特定的令牌处理逻辑。
+
+        Args:
+            tokens: 输入令牌序列
+
+        Returns:
+            处理后的令牌序列
+        """
+        # 默认实现：直接返回输入令牌序列
+        return tokens
+
     def get_token_data(self, df: pd.DataFrame, format: str = 'dataframe') -> Union[pd.DataFrame, Dict]:
         """从DataFrame中获取token数据
 
@@ -130,7 +136,7 @@ class TokenProcessing:
             raise ValueError("不支持的格式，必须是'dataframe'或'dict'")
             
         if df is None or df.empty:
-            self.logger.warning("输入DataFrame为空")
+            logger.warning("输入DataFrame为空")
             if format == 'dataframe':
                 return pd.DataFrame(columns=["input_tokens", "decoded_text"])
             return {}
@@ -179,12 +185,12 @@ class TokenProcessing:
                 
             # 记录处理时间
             process_time = time.time() - start_time
-            self.logger.info(f"处理 {len(df)} 行数据用时: {process_time:.2f}秒")
+            logger.info(f"处理 {len(df)} 行数据用时: {process_time:.2f}秒")
             
             return output
             
         except Exception as e:
-            self.logger.error(f"获取token数据时出错: {str(e)}")
+            logger.error(f"获取token数据时出错: {str(e)}")
             raise RuntimeError(f"获取token数据时出错: {str(e)}")
             
     def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict[str, float]:
@@ -206,7 +212,7 @@ class TokenProcessing:
             raise ValueError("输入DataFrame不能为None")
 
         if df.empty:
-            self.logger.warning("输入数据为空")
+            logger.warning("输入数据为空")
             return {}
 
         # 如果提供了保存路径，先进行验证
@@ -288,7 +294,7 @@ class TokenProcessing:
             # 确定使用哪一列
             token_column = 'input_tokens' if 'input_tokens' in df.columns else 'token'
             if token_column not in df.columns:
-                self.logger.warning(f"DataFrame中缺少所需的列: {token_column}")
+                logger.warning(f"DataFrame中缺少所需的列: {token_column}")
                 return {}
 
             # 展平所有token列表并计算频率分布
@@ -317,10 +323,10 @@ class TokenProcessing:
 
                 # 报告进度
                 if i % 10000 == 0:
-                    self.logger.info(f"已处理 {i}/{len(df)} 行数据")
+                    logger.info(f"已处理 {i}/{len(df)} 行数据")
 
             if not all_tokens:
-                self.logger.warning("没有找到有效的token")
+                logger.warning("没有找到有效的token")
                 return {}
 
             # 计算分布
@@ -334,22 +340,22 @@ class TokenProcessing:
                 try:
                     self._save_distribution_plot(distribution, save_path)
                 except ValueError as e:
-                    self.logger.error(f"保存分布图时出错: {str(e)}")
+                    logger.error(f"保存分布图时出错: {str(e)}")
                     raise
                 except Exception as e:
-                    self.logger.error(f"保存分布图时出错: {str(e)}")
+                    logger.error(f"保存分布图时出错: {str(e)}")
                     raise ValueError(f"保存分布图失败: {str(e)}")
 
             return distribution
 
         except MemoryError as e:
-            self.logger.error(f"内存不足: {str(e)}")
+            logger.error(f"内存不足: {str(e)}")
             raise
         except ValueError as e:
-            self.logger.error(f"无效的输入或路径: {str(e)}")
+            logger.error(f"无效的输入或路径: {str(e)}")
             raise
         except Exception as e:
-            self.logger.error(f"计算分布时出错: {str(e)}")
+            logger.error(f"计算分布时出错: {str(e)}")
             raise RuntimeError(f"计算分布时出错: {str(e)}")
         
     def _save_distribution_plot(self, distribution: Dict[str, float], save_path: Union[str, Path]) -> None:
@@ -458,4 +464,4 @@ class TokenProcessing:
             # 关闭所有matplotlib图表
             plt.close('all')
         except Exception as e:
-            self.logger.warning(f"清理图表资源时出错: {str(e)}")
+            logger.warning(f"清理图表资源时出错: {str(e)}")

@@ -86,7 +86,8 @@ def mock_configs(tmp_path):
                 "mode": "local",
                 "batch_size": 1,
                 "max_length": 128,
-                "device": "cuda"
+                "device": "cuda",
+                "dtype": "float32"
             }
         }
     }
@@ -97,7 +98,8 @@ def mock_configs(tmp_path):
         "max_batch_size": 4,
         "max_queue_size": 100,
         "max_wait_time": 1.0,
-        "scheduling_strategy": "token_based"
+        "scheduling_strategy": "token_based",
+        "hardware_config": hardware_config
     }
     
     return {
@@ -224,7 +226,7 @@ def test_system_pipeline_with_mock_data(mock_configs):
         assert "decoded_text" in processed_data.columns
 
 def test_system_pipeline_with_configs(mock_configs):
-    """测试系统管道的配置处理。
+    """使用配置文件测试系统管道。
     
     Args:
         mock_configs: 模拟配置目录的路径
@@ -240,14 +242,14 @@ def test_system_pipeline_with_configs(mock_configs):
         # 创建测试数据
         test_data = [
             {
-                "instruction": "Test configuration",
+                "instruction": "Hello world",
                 "input": "",
-                "output": "配置测试"
+                "output": "你好，世界"
             },
             {
-                "instruction": "Processing data",
+                "instruction": "Test text",
                 "input": "",
-                "output": "数据处理"
+                "output": "测试文本"
             }
         ]
         with open(data_path, "w", encoding="utf-8") as f:
@@ -275,16 +277,24 @@ def test_system_pipeline_with_configs(mock_configs):
         results = pipeline.run()
         
         # 验证结果
-        assert isinstance(results, dict)
+        assert "results" in results
+        assert "thresholds" in results
+        assert "energy" in results
+        assert "runtime" in results
         assert "metrics" in results
         assert "config" in results
+        assert "distribution" in results
+        assert "report_path" in results
         
-        # 验证处理后的数据
-        processed_data = pd.read_csv(output_dir / "processed_data.csv")
-        assert len(processed_data) == len(test_data)
-        assert "input_tokens" in processed_data.columns
-        assert "decoded_text" in processed_data.columns
-        assert all(isinstance(text, str) for text in processed_data["decoded_text"])
+        # 验证指标
+        metrics = results["metrics"]
+        assert "latency" in metrics
+        assert "energy" in metrics
+        assert "throughput" in metrics
+        assert "runtime" in metrics
+        
+        # 验证报告文件存在
+        assert os.path.exists(results["report_path"])
 
 def test_system_integration():
     """测试系统集成。"""

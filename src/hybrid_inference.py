@@ -1,9 +1,10 @@
 """混合推理模块。"""
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from src.model_zoo.base_model import BaseModel
 from src.hardware_profiling import get_profiler
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,30 +29,68 @@ class HybridInference:
         self.logger = logging.getLogger(__name__)
         self.profiler = get_profiler(config=hardware_config, skip_nvml=skip_nvml)
         
-    def infer(self, text: str) -> str:
+    def infer(self, task: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         """
         执行推理。
 
         Args:
-            text: 输入文本
+            task: 输入任务，可以是字符串或字典
+                如果是字典，必须包含:
+                - input: 输入文本
+                - max_tokens: 最大生成token数
 
         Returns:
-            str: 生成的文本
+            Dict[str, Any]: 包含输出文本和性能指标的字典
         """
-        if not text:
-            raise ValueError("输入文本不能为空")
+        # 处理输入
+        if isinstance(task, str):
+            text = task
+            max_tokens = None
+        elif isinstance(task, dict):
+            if "input" not in task:
+                raise ValueError("任务字典必须包含 'input' 字段")
+            if "max_tokens" not in task:
+                raise ValueError("任务字典必须包含 'max_tokens' 字段")
+            text = task["input"]
+            max_tokens = task["max_tokens"]
+        else:
+            raise TypeError("任务必须是字符串或字典")
+            
+        if not text and not isinstance(text, str):
+            raise ValueError("输入文本不能为空且必须是字符串")
             
         try:
-            # 开始性能测量
-            self.profiler.start_measurement()
+            # 获取输入token数量
+            input_tokens = self.model.get_token_count(text)
             
-            # 执行推理
-            output = self.model.infer(text)
+            # 定义推理任务
+            def inference_task():
+                return self.model.infer(text, max_tokens=max_tokens) if max_tokens else self.model.infer(text)
             
-            # 结束性能测量
-            self.profiler.end_measurement()
+            # 执行推理并测量性能
+            output = None
+            def measure_task():
+                nonlocal output
+                output = inference_task()
+                
+            # 使用 profiler.measure 测量性能
+            metrics = self.profiler.measure(
+                measure_task,
+                input_tokens=input_tokens,
+                output_tokens=self.model.get_token_count(output) if output else 0
+            )
             
-            return output
+            # 确保所有必需的指标都存在
+            if "runtime" not in metrics:
+                metrics["runtime"] = time.time() - start_time
+            if "throughput" not in metrics:
+                total_tokens = input_tokens + (self.model.get_token_count(output) if output else 0)
+                metrics["throughput"] = total_tokens / metrics["runtime"] if metrics["runtime"] > 0 else 0
+            
+            return {
+                "output": output,
+                "metrics": metrics
+            }
             
         except Exception as e:
             self.logger.error(f"推理失败: {str(e)}")
@@ -85,13 +124,15 @@ class HybridInference:
             input_tokens = self.model.get_token_count(text)
             
             # 执行推理并测量性能
+            output = None
             def inference_task():
-                return self.model.infer(text)
+                nonlocal output
+                output = self.model.infer(text)
                 
             metrics = self.profiler.measure(
                 inference_task,
-                input_tokens,
-                self.model.get_token_count(inference_task())
+                input_tokens=input_tokens,
+                output_tokens=self.model.get_token_count(output) if output else 0
             )
             
             return metrics

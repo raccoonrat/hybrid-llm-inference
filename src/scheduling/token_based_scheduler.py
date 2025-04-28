@@ -62,8 +62,9 @@ class TokenBasedScheduler(BaseScheduler):
 
         Returns:
             调度后的任务列表，每个任务包含以下字段：
-                - decoded_text: 解码后的文本
-                - input_tokens: 输入令牌列表
+                - input: 输入文本
+                - input_tokens_count: 输入令牌数
+                - output_tokens_count: 输出令牌数
                 - model: 分配的模型
                 - hardware: 分配的硬件
         """
@@ -109,11 +110,12 @@ class TokenBasedScheduler(BaseScheduler):
             
             scheduled_task = task.copy()
             scheduled_task.update({
+                "input": task["decoded_text"],  # 原始输入文本
+                "input_tokens_count": input_tokens_count,  # 输入令牌数
+                "output_tokens_count": output_tokens_count,  # 输出令牌数
                 "model": model,
                 "hardware": hardware,
-                "estimated_tokens": total_tokens,
-                "input_tokens_count": input_tokens_count,
-                "output_tokens_count": output_tokens_count
+                "estimated_tokens": total_tokens
             })
             scheduled_tasks.append(scheduled_task)
 

@@ -104,7 +104,7 @@ class TaskAllocator(BaseAllocator):
         else:
             return "apple_m1_pro"  # 大任务分配给CPU
     
-    def allocate(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def allocate(self, tasks: List[Dict[str, Any]], model_name: str) -> List[Dict[str, Any]]:
         """
         分配任务。
         
@@ -113,6 +113,7 @@ class TaskAllocator(BaseAllocator):
                 - input_tokens: 输入令牌数
                 - output_tokens: 输出令牌数
                 - model: 模型名称
+            model_name: 模型名称
                 
         Returns:
             分配后的任务列表，每个任务包含以下字段：
@@ -131,22 +132,21 @@ class TaskAllocator(BaseAllocator):
             # 验证任务
             if not isinstance(task, dict):
                 raise ValueError("任务必须是字典")
-            if "input_tokens" not in task or "output_tokens" not in task or "model" not in task:
-                raise ValueError("任务必须包含 input_tokens、output_tokens 和 model 字段")
+            if "input_tokens_count" not in task or "output_tokens_count" not in task:
+                raise ValueError("任务必须包含 input_tokens_count 和 output_tokens_count 字段")
             
-            input_tokens = task["input_tokens"]
-            output_tokens = task["output_tokens"]
-            model = task["model"]
+            input_tokens = task["input_tokens_count"]
+            output_tokens = task["output_tokens_count"]
             
             # 验证令牌数
             if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
-                raise ValueError("input_tokens 和 output_tokens 必须是整数")
+                raise ValueError("input_tokens_count 和 output_tokens_count 必须是整数")
             if input_tokens < 0 or output_tokens < 0:
-                raise ValueError("input_tokens 和 output_tokens 不能为负数")
+                raise ValueError("input_tokens_count 和 output_tokens_count 不能为负数")
             
             # 验证模型
-            if model not in self.model_config["models"]:
-                raise ValueError(f"未知的模型: {model}")
+            if model_name not in self.model_config["models"]:
+                raise ValueError(f"未知的模型: {model_name}")
             
             # 选择硬件
             total_tokens = input_tokens + output_tokens
@@ -156,12 +156,12 @@ class TaskAllocator(BaseAllocator):
             if hardware not in self.hardware_config:
                 raise ValueError(f"未知的硬件: {hardware}")
             
-            allocated_tasks.append({
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "model": model,
+            allocated_task = task.copy()
+            allocated_task.update({
+                "model": model_name,
                 "hardware": hardware
             })
+            allocated_tasks.append(allocated_task)
         
         return allocated_tasks
     

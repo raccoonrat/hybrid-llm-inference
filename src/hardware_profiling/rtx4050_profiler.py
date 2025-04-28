@@ -136,6 +136,8 @@ class RTX4050Profiler(HardwareProfiler):
         self.nvml_initialized = False
         self.is_measuring = False
         self.is_test_mode = os.getenv('TEST_MODE') == '1'
+        self.start_time = None
+        self.start_energy = None
 
         # 验证配置
         self._validate_config()
@@ -200,17 +202,28 @@ class RTX4050Profiler(HardwareProfiler):
         """测量 GPU 的当前功率。
         
         Returns:
-            float: 当前功率（瓦特）
+            float: 当前功率（瓦特），最小值为 0.001
         """
-        if not self.initialized or not self.nvml_initialized or self.handle is None:
-            return self.idle_power
+        if not self.initialized:
+            logger.warning("性能分析器未初始化，使用默认功率值")
+            return max(0.001, self.idle_power)
+            
+        if not self.nvml_initialized:
+            logger.warning("NVML未初始化，使用默认功率值")
+            return max(0.001, self.idle_power)
+            
+        if self.handle is None:
+            logger.warning("GPU设备句柄无效，使用默认功率值")
+            return max(0.001, self.idle_power)
             
         try:
             power = pynvml.nvmlDeviceGetPowerUsage(self.handle) / 1000.0  # 转换为瓦特
-            return max(0.0, power - self.idle_power)  # 减去空闲功耗
+            adjusted_power = max(0.001, power - self.idle_power)  # 减去空闲功耗，确保最小值为 0.001
+            logger.debug(f"测量到的GPU功率: {power:.3f}W, 调整后功率: {adjusted_power:.3f}W")
+            return adjusted_power
         except pynvml.NVMLError as e:
             logger.error(f"功率测量失败: {e}")
-            return self.idle_power
+            return max(0.001, self.idle_power)
 
     def measure(self, task: Callable, input_tokens: int, output_tokens: int) -> Dict[str, float]:
         """测量任务性能。
@@ -226,35 +239,103 @@ class RTX4050Profiler(HardwareProfiler):
                 - runtime: 运行时间 (s)
                 - throughput: 吞吐量 (tokens/s)
                 - energy_per_token: 每令牌能耗 (J/token)
+                - avg_power: 平均功率 (W)
+                - peak_power: 峰值功率 (W)
         """
         if not self.initialized:
+            logger.error("性能分析器未初始化")
             raise RuntimeError("性能分析器未初始化")
 
         try:
+            # 初始化采样列表
+            power_samples = []
+            time_samples = []
+            sampling_interval = self.sample_interval / 1000.0  # 转换为秒
+            
             # 获取初始功率
+            start_time = time.perf_counter()
             start_power = self.measure_power()
+            power_samples.append(start_power)
+            time_samples.append(start_time)
+            logger.debug(f"初始功率: {start_power:.3f}W")
+            
+            # 创建监控线程
+            def power_monitoring():
+                try:
+                    while self.is_measuring:
+                        current_time = time.perf_counter()
+                        power = self.measure_power()
+                        power_samples.append(power)
+                        time_samples.append(current_time)
+                        # 动态调整采样间隔，确保采样点足够密集
+                        time.sleep(max(0.001, min(sampling_interval, 0.01)))
+                except Exception as e:
+                    logger.error(f"功率监控线程异常: {str(e)}")
+                    self.is_measuring = False
+            
+            # 启动监控线程
+            import threading
+            self.is_measuring = True
+            monitor_thread = threading.Thread(target=power_monitoring)
+            monitor_thread.daemon = True
+            monitor_thread.start()
             
             # 执行任务
-            start_time = time.time()
-            task()
-            end_time = time.time()
+            try:
+                task()
+            except Exception as e:
+                logger.error(f"任务执行失败: {str(e)}")
+                raise
+            finally:
+                # 停止监控
+                self.is_measuring = False
+                monitor_thread.join(timeout=1.0)
             
-            # 获取结束功率
+            # 记录结束时间和功率
+            end_time = time.perf_counter()
             end_power = self.measure_power()
+            power_samples.append(end_power)
+            time_samples.append(end_time)
             
             # 计算指标
-            runtime = end_time - start_time
-            avg_power = (start_power + end_power) / 2.0
-            energy = avg_power * runtime
-            total_tokens = input_tokens + output_tokens
-            throughput = total_tokens / runtime if runtime > 0 else 0
-            energy_per_token = energy / total_tokens if total_tokens > 0 else 0
+            runtime = max(end_time - start_time, 0.001)  # 确保运行时间至少为1ms
+            
+            # 计算平均功率和峰值功率
+            avg_power = max(sum(power_samples) / len(power_samples), 0.001)
+            peak_power = max(power_samples)
+            
+            # 使用更精确的能量计算方法
+            energy = 0.0
+            for i in range(len(power_samples) - 1):
+                dt = time_samples[i + 1] - time_samples[i]
+                # 使用梯形法则计算能量，考虑采样间隔不均匀
+                energy += (power_samples[i] + power_samples[i + 1]) * dt / 2.0
+            
+            # 确保能量值为正数
+            energy = max(energy, 0.001)
+            
+            # 计算其他指标
+            total_tokens = max(input_tokens + output_tokens, 1)
+            throughput = total_tokens / runtime
+            energy_per_token = energy / total_tokens
+            
+            # 记录计算的指标
+            logger.debug(f"计算的性能指标:")
+            logger.debug(f"- 运行时间: {runtime:.3f}s")
+            logger.debug(f"- 平均功率: {avg_power:.3f}W")
+            logger.debug(f"- 峰值功率: {peak_power:.3f}W")
+            logger.debug(f"- 能耗: {energy:.3f}J")
+            logger.debug(f"- 吞吐量: {throughput:.3f}tokens/s")
+            logger.debug(f"- 每令牌能耗: {energy_per_token:.3f}J/token")
+            logger.debug(f"- 采样点数: {len(power_samples)}")
 
             return {
                 "energy": energy,
                 "runtime": runtime,
                 "throughput": throughput,
-                "energy_per_token": energy_per_token
+                "energy_per_token": energy_per_token,
+                "avg_power": avg_power,
+                "peak_power": peak_power
             }
         except Exception as e:
             logger.error(f"性能测量失败: {str(e)}")
@@ -548,4 +629,40 @@ class RTX4050Profiler(HardwareProfiler):
                 "temperature": 0.0,
                 "utilization": 0.0,
                 "memory_utilization": 0.0
-            } 
+            }
+
+    def start(self):
+        """开始性能测量。"""
+        self.start_time = time.time()
+        if not self.is_test_mode:
+            try:
+                self.start_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(self.handle)
+            except Exception as e:
+                logger.error(f"获取能耗失败: {e}")
+                self.start_energy = 0
+        else:
+            self.start_energy = 0
+    
+    def stop(self) -> Dict[str, float]:
+        """停止性能测量。
+
+        Returns:
+            Dict[str, float]: 包含执行时间和能耗的字典
+        """
+        end_time = time.time()
+        execution_time = end_time - self.start_time
+        
+        if not self.is_test_mode:
+            try:
+                end_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(self.handle)
+                energy = end_energy - self.start_energy
+            except Exception as e:
+                logger.error(f"获取能耗失败: {e}")
+                energy = 0
+        else:
+            energy = 0
+        
+        return {
+            "execution_time": execution_time,
+            "energy": energy
+        } 

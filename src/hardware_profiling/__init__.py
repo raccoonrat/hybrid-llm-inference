@@ -2,6 +2,7 @@
 """硬件性能分析模块。"""
 
 from .base_profiler import HardwareProfiler
+from .m1_profiler import M1Profiler
 from .m1_pro_profiler import M1ProProfiler
 from .rtx4050_profiler import RTX4050Profiler
 from .a100_profiler import A100Profiler
@@ -26,7 +27,7 @@ def get_profiler(device_name: str, config: Dict[str, Any]) -> HardwareProfiler:
         HardwareProfiler: 性能分析器实例
     """
     if device_name == "m1_pro":
-        return M1ProProfiler(config)
+        return M1Profiler(config)
     elif device_name == "rtx4050":
         return RTX4050Profiler(config)
     elif device_name == "a100":

@@ -82,12 +82,12 @@ class CostFunction:
         """计算成本。
 
         Args:
-            metrics: 性能指标字典
+            metrics: 性能指标字典，包含 "latency" 和 "energy" 键
 
         Returns:
             成本值
         """
-        return self.lambda_param * metrics["energy"] + (1 - self.lambda_param) * metrics["runtime"]
+        return self.lambda_param * metrics["energy"] + (1 - self.lambda_param) * metrics["latency"]
 
     def compute(self, task: Callable, input_tokens: int, output_tokens: int, system: str) -> Dict[str, float]:
         """计算任务的性能指标。

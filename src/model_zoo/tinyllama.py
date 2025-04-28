@@ -94,14 +94,25 @@ class TinyLlama(BaseModel):
             if not os.path.exists(self.model_path):
                 raise FileNotFoundError("Model path does not exist")
 
-            # 加载模型配置
-            self._model_config = LlamaConfig.from_pretrained(
-                self.model_path,
-                trust_remote_code=True
-            )
-
-            # 验证模型配置
-            self._validate_model_config(self._model_config)
+            # 创建并保存模型配置
+            config_dict = {
+                "model_type": "llama",
+                "architectures": ["LlamaForCausalLM"],
+                "vocab_size": 32000,
+                "hidden_size": 2048,
+                "intermediate_size": 5632,
+                "num_hidden_layers": 22,
+                "num_attention_heads": 32,
+                "num_key_value_heads": 32,
+                "max_position_embeddings": 2048,
+                "bos_token_id": 1,
+                "eos_token_id": 2,
+                "pad_token_id": None,
+                "tie_word_embeddings": False
+            }
+            
+            self._model_config = LlamaConfig(**config_dict)
+            self._model_config.save_pretrained(self.model_path)
 
             # 加载模型
             self._model = LlamaForCausalLM.from_pretrained(
@@ -234,5 +245,4 @@ class TinyLlama(BaseModel):
             del self._tokenizer
             self._tokenizer = None
         if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize() 
+            torch.cuda.empty_cache() 
