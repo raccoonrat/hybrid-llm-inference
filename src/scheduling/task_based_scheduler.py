@@ -37,7 +37,10 @@ class TaskBasedScheduler(BaseScheduler):
                     }
                 }
             }
-        self.allocator = TaskAllocator(config)
+        self.allocator = TaskAllocator(
+            hardware_config=config["hardware_config"],
+            model_config=config["model_config"]
+        )
         self.tasks = []
         self.device_queues = {
             "apple_m1_pro": [],
@@ -90,10 +93,10 @@ class TaskBasedScheduler(BaseScheduler):
         for task in tasks:
             # 获取任务分配
             allocations = self.allocator.allocate([{
-                "input_tokens": len(task["input"].split()),
-                "output_tokens": 50,  # 假设输出令牌数为 50
-                "model": "tinyllama"
-            }])
+                "input_tokens_count": task.get("input_tokens_count", len(task["input"].split())),
+                "output_tokens_count": task.get("output_tokens_count", 50),  # 假设输出令牌数为 50
+                "model": task.get("model", "tinyllama")
+            }], model_name=task.get("model", "tinyllama"))
             
             if allocations:
                 allocation = allocations[0]

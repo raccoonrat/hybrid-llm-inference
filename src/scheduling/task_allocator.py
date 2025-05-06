@@ -131,7 +131,7 @@ class TaskAllocator(BaseAllocator):
             raise ValueError("总令牌数必须大于 0")
         
         # 由于只有 RTX 4050，所以直接返回
-        return "rtx4050"
+        return "nvidia_rtx4050"
     
     def allocate(self, tasks: List[Dict[str, Any]], model_name: str) -> List[Dict[str, Any]]:
         """
