@@ -40,6 +40,10 @@ class TaskAllocator(BaseAllocator):
         self.hardware_config = hardware_config
         self.model_config = model_config
         
+        # 兼容 nvidia_rtx4050 作为 key
+        if isinstance(self.hardware_config, dict) and "rtx4050" in self.hardware_config and "nvidia_rtx4050" not in self.hardware_config:
+            self.hardware_config["nvidia_rtx4050"] = self.hardware_config["rtx4050"].copy()
+        
         # 加载调度器配置
         scheduler_config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'scheduler_config.yaml')
         with open(scheduler_config_path, 'r', encoding='utf-8') as f:
