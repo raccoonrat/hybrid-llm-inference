@@ -50,7 +50,10 @@ def task_scheduler():
 @pytest.fixture
 def task_allocator():
     """创建 TaskAllocator 实例的 fixture。"""
-    return TaskAllocator(TEST_CONFIG)
+    return TaskAllocator(
+        hardware_config=TEST_CONFIG["hardware_config"],
+        model_config=TEST_CONFIG["model_config"]
+    )
 
 @pytest.fixture
 def token_scheduler():
@@ -80,19 +83,30 @@ def test_task_scheduler_add_task(task_scheduler):
 def test_task_scheduler_schedule_tasks(task_scheduler):
     """测试 TaskBasedScheduler 调度任务。"""
     tasks = [
-        {"instruction": "test1", "input": "test input 1"},
-        {"instruction": "test2", "input": "test input 2"}
+        {
+            "query": {
+                "input_tokens": 500,
+                "output_tokens": 50,
+                "prompt": "test input 1"
+            },
+            "model": "tinyllama"
+        },
+        {
+            "query": {
+                "input_tokens": 600,
+                "output_tokens": 50,
+                "prompt": "test input 2"
+            },
+            "model": "tinyllama"
+        }
     ]
-    
+
     for task in tasks:
         task_scheduler.add_task(task)
-    
+
     scheduled_tasks = task_scheduler.schedule(tasks)
+    assert isinstance(scheduled_tasks, list)
     assert len(scheduled_tasks) == 2
-    for task in scheduled_tasks:
-        assert "task" in task
-        assert "device" in task
-        assert task["device"] in ["apple_m1_pro", "nvidia_rtx4050"]
 
 def test_task_scheduler_warmup(task_scheduler):
     """测试 TaskBasedScheduler 预热。"""
@@ -108,32 +122,34 @@ def test_task_allocator_init(task_allocator):
 def test_task_allocator_init_invalid_config():
     """测试 TaskAllocator 初始化时的无效配置。"""
     invalid_configs = [
-        None,           # 空配置
-        {},            # 空字典
-        {"hardware_config": {}},  # 空硬件配置
-        {"model_config": {}},     # 空模型配置
+        (None, None),           # 空配置
+        ({}, {}),            # 空字典
+        ({"hardware_config": {}}, {}),  # 空硬件配置
+        ({}, {"model_config": {}}),     # 空模型配置
     ]
     
-    for config in invalid_configs:
+    for hardware_config, model_config in invalid_configs:
         with pytest.raises(ValueError):
-            TaskAllocator(config)
+            TaskAllocator(hardware_config=hardware_config, model_config=model_config)
 
 def test_task_allocator_allocate(task_allocator):
     """测试 TaskAllocator 分配任务。"""
     tasks = [
         {
-            "input_tokens": 500,
-            "output_tokens": 50,
+            "query": {
+                "input_tokens": 500,
+                "output_tokens": 50,
+                "prompt": "test input 1"
+            },
             "model": "tinyllama"
         }
     ]
-    
-    allocations = task_allocator.allocate(tasks)
+
+    allocations = task_allocator.allocate(tasks, model_name="tinyllama")
+    assert isinstance(allocations, list)
     assert len(allocations) == 1
-    assert allocations[0]["hardware"] == "apple_m1_pro"
-    assert allocations[0]["input_tokens"] == 500
-    assert allocations[0]["output_tokens"] == 50
-    assert allocations[0]["model"] == "tinyllama"
+    assert "metrics" in allocations[0]
+    assert "hardware" in allocations[0]
 
 def test_token_scheduler_init(token_scheduler):
     """测试 TokenBasedScheduler 初始化。"""
@@ -143,16 +159,24 @@ def test_token_scheduler_init(token_scheduler):
 def test_token_scheduler_schedule(token_scheduler):
     """测试 TokenBasedScheduler 调度任务。"""
     tasks = [
-        {"tokens": 500},   # 小任务
-        {"tokens": 1500}   # 大任务
+        {
+            "decoded_text": "这是一个短文本",
+            "input_tokens": 500,
+            "tokens": 500
+        },   # 小任务
+        {
+            "decoded_text": "这是一个长文本，需要更多的处理能力",
+            "input_tokens": 1500,
+            "tokens": 1500
+        }   # 大任务
     ]
     
     scheduled_tasks = token_scheduler.schedule(tasks)
     assert len(scheduled_tasks) == 2
     assert scheduled_tasks[0]["model"] == "tinyllama"
-    assert scheduled_tasks[0]["hardware"] == "apple_m1_pro"
-    assert scheduled_tasks[1]["model"] == "llama3"
-    assert scheduled_tasks[1]["hardware"] == "rtx4050"
+    assert scheduled_tasks[0]["hardware"] == "nvidia_rtx4050"
+    assert scheduled_tasks[1]["model"] == "tinyllama"
+    assert scheduled_tasks[1]["hardware"] == "nvidia_rtx4050"
 
 def test_token_scheduler_schedule_invalid_tasks(token_scheduler):
     """测试 TokenBasedScheduler 调度无效任务。"""

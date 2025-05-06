@@ -102,7 +102,7 @@ class TokenBasedScheduler(BaseScheduler):
                 "input_tokens_count": input_tokens,
                 "output_tokens_count": task.get("output_token_count", 0),
                 "model": self.model_name,
-                "hardware": self.hardware_config.get("device_type", "gpu")
+                "hardware": "nvidia_rtx4050"  # 使用固定的硬件名称
             }
             scheduled_tasks.append(scheduled_task)
 

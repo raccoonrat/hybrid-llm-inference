@@ -26,6 +26,9 @@ def get_profiler(device_name: str, config: Dict[str, Any]) -> HardwareProfiler:
     Returns:
         HardwareProfiler: 性能分析器实例
     """
+    # 兼容 nvidia_rtx4050
+    if device_name == "nvidia_rtx4050":
+        device_name = "rtx4050"
     if device_name == "m1_pro":
         return M1Profiler(config)
     elif device_name == "rtx4050":

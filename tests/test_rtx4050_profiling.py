@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def test_model_profiling():
     # 使用Windows下的WSL模型路径
-    model_path = r"\\wsl.localhost\Ubuntu-24.04\home\mpcblock\models\TinyLlama-1.1B-Chat-v1.0"
+    model_path = r"D:\Dev\cursor\github.com\hybrid-llm-inference\models\TinyLlama-1.1B-Chat-v1.0"
     
     # 检查路径是否存在
     if not os.path.exists(model_path):

@@ -1,0 +1,27 @@
+[
+    {
+        "instruction": "Translate the following English text to Chinese: Hello, how are you?",
+        "input": "",
+        "output": "你好，你怎么样？"
+    },
+    {
+        "instruction": "What is the capital of France?",
+        "input": "",
+        "output": "The capital of France is Paris."
+    },
+    {
+        "instruction": "Explain the concept of machine learning in simple terms.",
+        "input": "",
+        "output": "Machine learning is a type of artificial intelligence that allows computers to learn from data and improve their performance without being explicitly programmed."
+    },
+    {
+        "instruction": "Write a short poem about nature.",
+        "input": "",
+        "output": "The trees whisper in the breeze,\nThe flowers dance with ease,\nNature's beauty never cease,\nBringing us all peace."
+    },
+    {
+        "instruction": "Calculate the sum of 25 and 37.",
+        "input": "",
+        "output": "The sum of 25 and 37 is 62."
+    }
+] 

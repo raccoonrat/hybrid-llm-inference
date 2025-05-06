@@ -1,6 +1,6 @@
 hardware:
   rtx4050:
-    type: "rtx4050"
+    device_type: "rtx4050"
     device_id: 0
     idle_power: 15.0
     sample_interval: 200

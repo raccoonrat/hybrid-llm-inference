@@ -3,9 +3,9 @@ import yaml
 from pathlib import Path
 from toolbox.config_manager import ConfigManager
 from toolbox.logger import get_logger
-from dataset_manager.alpaca_loader import AlpacaLoader
-from dataset_manager.data_processing import DataProcessing
-from dataset_manager.token_distribution import TokenDistribution
+from data_processing.alpaca_loader import AlpacaLoader
+from data_processing.data_processor import DataProcessor
+from data_processing.token_processing import TokenDistribution
 from optimization_engine.threshold_optimizer import ThresholdOptimizer
 from optimization_engine.tradeoff_analyzer import TradeoffAnalyzer
 from scheduling.token_based_scheduler import TokenBasedScheduler
@@ -32,7 +32,7 @@ def main():
             raise FileNotFoundError(f"Dataset not found: {dataset_path}")
         
         loader = AlpacaLoader(dataset_path)
-        processor = DataProcessing(loader, model_config["models"]["llama3"])
+        processor = DataProcessor(loader, model_config["models"]["llama3"])
         token_data = processor.get_token_data()
         logger.info(f"Loaded and processed {len(token_data)} tasks")
         

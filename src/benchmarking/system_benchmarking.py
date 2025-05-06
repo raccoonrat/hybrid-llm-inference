@@ -89,9 +89,13 @@ class SystemBenchmarking(BaseBenchmarking):
         if not isinstance(scheduler_config, dict):
             raise ValueError("调度器配置必须是字典类型")
         
+        if "scheduler" not in scheduler_config:
+            raise ValueError("调度器配置缺少scheduler字段")
+        
+        scheduler = scheduler_config["scheduler"]
         required_scheduler_fields = ["scheduler_type", "max_batch_size", "max_queue_size"]
         for field in required_scheduler_fields:
-            if field not in scheduler_config:
+            if field not in scheduler:
                 raise ValueError(f"调度器配置缺少必需字段: {field}")
 
         # 验证输出目录
@@ -195,17 +199,17 @@ class SystemBenchmarking(BaseBenchmarking):
         """初始化调度器。"""
         try:
             # 获取调度器配置
-            scheduler_type = self.scheduler_config["scheduler_type"]
+            scheduler_config = self.scheduler_config["scheduler"]
+            scheduler_type = scheduler_config["scheduler_type"]
             
-            # 根据类型初始化调度器
+            # 根据调度器类型初始化对应的调度器
             if scheduler_type == "token_based":
-                self.scheduler = TokenBasedScheduler(self.scheduler_config)
-            elif scheduler_type == "task_based":
-                self.scheduler = TaskBasedScheduler(self.scheduler_config)
+                self.scheduler = TokenBasedScheduler(scheduler_config)
             else:
                 raise ValueError(f"不支持的调度器类型: {scheduler_type}")
             
-            logger.info(f"调度器初始化完成: {scheduler_type}")
+            logger.info(f"成功初始化{scheduler_type}调度器")
+            
         except Exception as e:
             logger.error(f"调度器初始化失败: {str(e)}")
             raise
