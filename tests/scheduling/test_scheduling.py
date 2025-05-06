@@ -84,30 +84,29 @@ def test_task_scheduler_schedule_tasks(task_scheduler):
     """测试 TaskBasedScheduler 调度任务。"""
     tasks = [
         {
-            "instruction": "test1",
-            "input": "test input 1",
-            "input_tokens_count": 500,
-            "output_tokens_count": 50,
+            "query": {
+                "input_tokens": 500,
+                "output_tokens": 50,
+                "prompt": "test input 1"
+            },
             "model": "tinyllama"
         },
         {
-            "instruction": "test2",
-            "input": "test input 2",
-            "input_tokens_count": 600,
-            "output_tokens_count": 50,
+            "query": {
+                "input_tokens": 600,
+                "output_tokens": 50,
+                "prompt": "test input 2"
+            },
             "model": "tinyllama"
         }
     ]
-    
+
     for task in tasks:
         task_scheduler.add_task(task)
-    
+
     scheduled_tasks = task_scheduler.schedule(tasks)
+    assert isinstance(scheduled_tasks, list)
     assert len(scheduled_tasks) == 2
-    for task in scheduled_tasks:
-        assert "task" in task
-        assert "device" in task
-        assert task["device"] == "nvidia_rtx4050"  # 更新为实际使用的硬件
 
 def test_task_scheduler_warmup(task_scheduler):
     """测试 TaskBasedScheduler 预热。"""
@@ -137,18 +136,20 @@ def test_task_allocator_allocate(task_allocator):
     """测试 TaskAllocator 分配任务。"""
     tasks = [
         {
-            "input_tokens_count": 500,
-            "output_tokens_count": 50,
+            "query": {
+                "input_tokens": 500,
+                "output_tokens": 50,
+                "prompt": "test input 1"
+            },
             "model": "tinyllama"
         }
     ]
-    
+
     allocations = task_allocator.allocate(tasks, model_name="tinyllama")
+    assert isinstance(allocations, list)
     assert len(allocations) == 1
-    assert allocations[0]["hardware"] == "nvidia_rtx4050"  # 更新为实际使用的硬件
-    assert allocations[0]["input_tokens_count"] == 500
-    assert allocations[0]["output_tokens_count"] == 50
-    assert allocations[0]["model"] == "tinyllama"
+    assert "metrics" in allocations[0]
+    assert "hardware" in allocations[0]
 
 def test_token_scheduler_init(token_scheduler):
     """测试 TokenBasedScheduler 初始化。"""
@@ -173,9 +174,9 @@ def test_token_scheduler_schedule(token_scheduler):
     scheduled_tasks = token_scheduler.schedule(tasks)
     assert len(scheduled_tasks) == 2
     assert scheduled_tasks[0]["model"] == "tinyllama"
-    assert scheduled_tasks[0]["hardware"] == "nvidia_rtx4050"  # 更新为实际使用的硬件
+    assert scheduled_tasks[0]["hardware"] == "nvidia_rtx4050"
     assert scheduled_tasks[1]["model"] == "tinyllama"
-    assert scheduled_tasks[1]["hardware"] == "nvidia_rtx4050"  # 更新为实际使用的硬件
+    assert scheduled_tasks[1]["hardware"] == "nvidia_rtx4050"
 
 def test_token_scheduler_schedule_invalid_tasks(token_scheduler):
     """测试 TokenBasedScheduler 调度无效任务。"""

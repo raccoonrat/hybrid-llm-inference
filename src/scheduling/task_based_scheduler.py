@@ -91,12 +91,17 @@ class TaskBasedScheduler(BaseScheduler):
         scheduled_tasks = []
         
         for task in tasks:
-            # 获取任务分配
-            allocations = self.allocator.allocate([{
-                "input_tokens_count": task.get("input_tokens_count", len(task["input"].split())),
-                "output_tokens_count": task.get("output_tokens_count", 50),  # 假设输出令牌数为 50
+            # 兼容新结构：所有字段从 task['query'] 获取
+            query = task.get("query", {})
+            allocate_task = {
+                "query": {
+                    "input_tokens": query.get("input_tokens", 0),
+                    "output_tokens": query.get("output_tokens", 0),
+                    "prompt": query.get("prompt", "")
+                },
                 "model": task.get("model", "tinyllama")
-            }], model_name=task.get("model", "tinyllama"))
+            }
+            allocations = self.allocator.allocate([allocate_task], model_name=task.get("model", "tinyllama"))
             
             if allocations:
                 allocation = allocations[0]
@@ -106,7 +111,7 @@ class TaskBasedScheduler(BaseScheduler):
                     "task": task,
                     "device": allocation["hardware"]
                 })
-            
+        
         return scheduled_tasks
     
     def get_queue_lengths(self) -> Dict[str, int]:
