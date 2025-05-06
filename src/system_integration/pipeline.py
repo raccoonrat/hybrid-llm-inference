@@ -209,14 +209,62 @@ class SystemPipeline:
             self.components["profiler"] = self.profiler
             
             # 5. 初始化基准测试
+            # 转换为标准格式的配置
+            standard_model_config = {
+                "models": {
+                    self.model_name: {
+                        "model_name": self.model_name,
+                        "model_path": self.model_path,
+                        "device": self.config["model"].get("device", "cuda"),
+                        "dtype": self.config["model"].get("dtype", "float32"),
+                        "mode": self.config["model"].get("mode", "local"),
+                        "max_length": self.config["model"].get("max_length", 512),
+                        "mixed_precision": self.config["model"].get("mixed_precision", "fp16"),
+                        "device_placement": self.config["model"].get("device_placement", True),
+                        "batch_size": self.config["model"].get("batch_size", 1)
+                    }
+                }
+            }
+
+            standard_hardware_config = {
+                "devices": {
+                    "rtx4050": {
+                        "device_type": self.config["hardware"].get("device_type", "gpu"),
+                        "device_id": self.config["hardware"].get("device_id", 0),
+                        "idle_power": self.config["hardware"].get("idle_power", 15.0),
+                        "memory_limit": self.config["hardware"].get("memory_limit", 6144),
+                        "compute_capability": self.config["hardware"].get("compute_capability", 8.9),
+                        "priority": self.config["hardware"].get("priority", 1),
+                        "sample_interval": self.config["hardware"].get("sample_interval", 200)
+                    }
+                }
+            }
+
+            standard_scheduler_config = {
+                "scheduler": {
+                    "scheduler_type": self.config["scheduler"].get("scheduler_type", "token_based"),
+                    "max_batch_size": self.config["scheduler"].get("max_batch_size", 4),
+                    "max_queue_size": self.config["scheduler"].get("max_queue_size", 100),
+                    "max_wait_time": self.config["scheduler"].get("max_wait_time", 1.0),
+                    "token_threshold": self.config["scheduler"].get("token_threshold", 512),
+                    "dynamic_threshold": self.config["scheduler"].get("dynamic_threshold", True),
+                    "batch_processing": self.config["scheduler"].get("batch_processing", True),
+                    "device_priority": ["rtx4050"],
+                    "monitoring": {
+                        "sample_interval": self.config["hardware"].get("sample_interval", 200),
+                        "metrics": ["power_usage", "memory_usage"]
+                    }
+                }
+            }
+
             benchmarking_config = {
-                "model_name": self.config["model"]["model_name"],
-                "model_config": self.config["model"],
-                "batch_size": self.config["scheduler"]["max_batch_size"],
+                "model_name": self.model_name,
+                "model_config": standard_model_config,
+                "batch_size": self.config["scheduler"].get("max_batch_size", 4),
                 "dataset_path": self.data_path,
-                "scheduler_config": self.config["scheduler"],
-                "hardware_config": self.config["hardware"],
-                "model_path": self.config["model"]["model_path"],
+                "scheduler_config": standard_scheduler_config,
+                "hardware_config": standard_hardware_config,
+                "model_path": self.model_path,
                 "output_dir": self.output_dir
             }
             self.benchmarking = SystemBenchmarking(benchmarking_config)

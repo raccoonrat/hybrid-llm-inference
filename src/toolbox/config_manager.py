@@ -2,7 +2,7 @@
 import os
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from toolbox.logger import get_logger
 
 logger = get_logger(__name__)
@@ -10,16 +10,43 @@ logger = get_logger(__name__)
 class ConfigManager:
     """配置管理器类,用于管理和验证配置。"""
     
-    def __init__(self, config_dir: str) -> None:
+    def __init__(self, config: Union[str, Dict[str, Any]]) -> None:
         """初始化配置管理器。
 
         Args:
-            config_dir: 配置文件目录路径
+            config: 配置目录路径或配置字典
         """
-        self.config_dir = Path(config_dir)
-        if not self.config_dir.exists():
-            raise ValueError(f"配置目录不存在: {config_dir}")
         self.configs = {}
+        
+        if isinstance(config, str):
+            # 如果是字符串，则视为配置目录路径
+            self.config_dir = Path(config)
+            if not self.config_dir.exists():
+                raise ValueError(f"配置目录不存在: {config}")
+        else:
+            # 如果是字典，则直接使用
+            self.config_dir = None
+            # 检查配置结构并进行转换
+            if "model" in config and "hardware" in config and "scheduler" in config:
+                # 如果是 SystemPipeline 风格的配置，转换为标准格式
+                converted_config = self._convert_pipeline_config(config)
+                for key, value in converted_config.items():
+                    try:
+                        self._validate_config(value, f"{key}.yaml")
+                    except Exception as e:
+                        logger.error(f"配置验证失败: {e}")
+                        raise
+                    self.configs[key] = value
+            else:
+                # 如果是标准格式，直接验证
+                for key, value in config.items():
+                    if key in ["hardware_config", "model_config", "scheduler_config"]:
+                        try:
+                            self._validate_config(value, f"{key}.yaml")
+                        except Exception as e:
+                            logger.error(f"配置验证失败: {e}")
+                            raise
+                    self.configs[key] = value
     
     def load_config(self, config_file: str) -> Dict[str, Any]:
         """加载指定配置文件。
@@ -30,6 +57,16 @@ class ConfigManager:
         Returns:
             配置字典
         """
+        # 如果是字典配置，直接返回对应部分
+        if self.config_dir is None:
+            config_key = config_file.replace(".yaml", "")
+            if config_key in self.configs:
+                config = self.configs[config_key]
+                self._validate_config(config, config_file)
+                return config
+            return {}
+            
+        # 否则从文件加载
         config_path = self.config_dir / config_file
         if not config_path.exists():
             raise FileNotFoundError(f"配置文件不存在: {config_path}")
@@ -50,7 +87,7 @@ class ConfigManager:
             raise
         
         # 缓存配置
-        self.configs[config_file] = config
+        self.configs[config_file.replace(".yaml", "")] = config
         return config
     
     def _validate_config(self, config: Dict[str, Any], config_file: str) -> None:
@@ -63,11 +100,11 @@ class ConfigManager:
         if not isinstance(config, dict):
             raise ValueError(f"{config_file}: 配置必须是字典类型")
         
-        if config_file == "hardware_config.yaml":
+        if "hardware_config.yaml" in config_file:
             self._validate_hardware_config(config)
-        elif config_file == "model_config.yaml":
+        elif "model_config.yaml" in config_file:
             self._validate_model_config(config)
-        elif config_file == "scheduler_config.yaml":
+        elif "scheduler_config.yaml" in config_file:
             self._validate_scheduler_config(config)
     
     def _validate_hardware_config(self, config: Dict[str, Any]) -> None:
@@ -217,7 +254,112 @@ class ConfigManager:
         Returns:
             配置字典
         """
-        if config_file not in self.configs:
+        config_key = config_file.replace(".yaml", "")
+        if config_key not in self.configs:
             raise ValueError(f"配置未加载: {config_file}")
-        return self.configs[config_file]
+        return self.configs[config_key]
+    
+    def get_dataset_path(self) -> Optional[str]:
+        """获取数据集路径。
+
+        Returns:
+            数据集路径，如果未配置则返回None
+        """
+        return self.configs.get("dataset_path")
+    
+    def get_output_dir(self) -> str:
+        """获取输出目录。
+
+        Returns:
+            输出目录路径
+        """
+        return self.configs.get("output_dir", "output")
+    
+    def get_hardware_config(self) -> Dict[str, Any]:
+        """获取硬件配置。
+
+        Returns:
+            硬件配置字典
+        """
+        return self.configs.get("hardware_config", {})
+    
+    def get_model_config(self) -> Dict[str, Any]:
+        """获取模型配置。
+
+        Returns:
+            模型配置字典
+        """
+        return self.configs.get("model_config", {})
+    
+    def get_scheduler_config(self) -> Dict[str, Any]:
+        """获取调度器配置。
+
+        Returns:
+            调度器配置字典
+        """
+        return self.configs.get("scheduler_config", {})
+
+    def _convert_pipeline_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """将 SystemPipeline 风格的配置转换为标准格式。
+
+        Args:
+            config: SystemPipeline 风格的配置字典
+
+        Returns:
+            Dict[str, Any]: 标准格式的配置字典
+        """
+        # 转换硬件配置
+        hardware_config = {
+            "devices": {
+                "rtx4050": {
+                    "device_type": config["hardware"]["device_type"],
+                    "device_id": config["hardware"]["device_id"],
+                    "idle_power": config["hardware"]["idle_power"],
+                    "memory_limit": config["hardware"].get("memory_limit", 6144),  # 默认 6GB
+                    "compute_capability": config["hardware"].get("compute_capability", 8.9),
+                    "priority": config["hardware"].get("priority", 1),
+                    "sample_interval": config["hardware"].get("sample_interval", 200)
+                }
+            }
+        }
+
+        # 转换模型配置
+        model_config = {
+            "models": {
+                config["model"]["model_name"]: {
+                    "model_name": config["model"]["model_name"],
+                    "model_path": config["model"]["model_path"],
+                    "device": config["model"].get("device", "cuda"),
+                    "dtype": config["model"].get("dtype", "float32"),
+                    "mode": config["model"].get("mode", "local"),
+                    "max_length": config["model"].get("max_length", 512),
+                    "mixed_precision": config["model"].get("mixed_precision", "fp16"),
+                    "device_placement": config["model"].get("device_placement", True),
+                    "batch_size": config["model"].get("batch_size", 1)
+                }
+            }
+        }
+
+        # 转换调度器配置
+        scheduler_config = {
+            "scheduler": {
+                "max_batch_size": config["scheduler"].get("max_batch_size", 4),
+                "max_queue_size": config["scheduler"].get("max_queue_size", 100),
+                "max_wait_time": config["scheduler"].get("max_wait_time", 1.0),
+                "token_threshold": config["scheduler"].get("token_threshold", 512),
+                "dynamic_threshold": config["scheduler"].get("dynamic_threshold", True),
+                "batch_processing": config["scheduler"].get("batch_processing", True),
+                "device_priority": ["rtx4050"],
+                "monitoring": {
+                    "sample_interval": config["hardware"].get("sample_interval", 200),
+                    "metrics": ["power_usage", "memory_usage"]
+                }
+            }
+        }
+
+        return {
+            "hardware_config": hardware_config,
+            "model_config": model_config,
+            "scheduler_config": scheduler_config
+        }
 

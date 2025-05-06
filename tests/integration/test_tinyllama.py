@@ -5,27 +5,22 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
 
 def load_config():
-    """加载配置文件"""
-    config_path = "configs/model_config.yaml"
-    if not os.path.exists(config_path):
-        # 创建默认配置
-        config = {
-            "models": {
-                "tinyllama": {
-                    "path": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-                    "device": "cuda",
-                    "dtype": "auto"
-                }
-            }
-        }
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, "w") as f:
-            yaml.dump(config, f)
-        return config["models"]["tinyllama"]
-    
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    return config["models"]["tinyllama"]
+    return {
+        "model_name": "TinyLlama-1.1B-Chat-v1.0",
+        "type": "local",
+        "path": r"\\wsl.localhost\Ubuntu-24.04\home\mpcblock\models\TinyLlama-1.1B-Chat-v1.0",
+        "tokenizer": "auto",
+        "max_length": 2048,
+        "batch_size": 1,
+        "device": "cuda",
+        "dtype": "float16",
+        "precision": "float16",
+        "quantization": "none",
+        "cache_dir": "data/models",
+        "trust_remote_code": True,
+        "mixed_precision": "fp16",
+        "device_placement": True
+    }
 
 def test_model_loading():
     """测试模型加载"""

@@ -88,11 +88,11 @@ class TaskAllocator(BaseAllocator):
         
         # 根据阈值选择硬件
         if threshold <= self.min_threshold:
-            return "nvidia_rtx4050"  # 小任务使用RTX 4050
+            return "rtx4050"  # 小任务使用RTX 4050
         elif threshold > self.max_threshold:
-            return "nvidia_rtx4050"  # 大任务也使用RTX 4050（因为只有这一个设备）
+            return "rtx4050"  # 大任务也使用RTX 4050（因为只有这一个设备）
         else:
-            return "nvidia_rtx4050"
+            return "rtx4050"
     
     def update_threshold(self, throughput: float) -> None:
         """
