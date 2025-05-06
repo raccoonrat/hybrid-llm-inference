@@ -28,7 +28,7 @@ class TestTokenScheduling:
         os.environ["TEST_MODE"] = "true"
         
         # 加载本地模型
-        model_path = self.model_config["models"]["tinyllama"]["path"]
+        model_path = self.model_config["models"]["tinyllama"]["model_path"]
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_path,

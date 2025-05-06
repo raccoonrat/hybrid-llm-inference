@@ -61,12 +61,59 @@ class TaskAllocator(BaseAllocator):
         # 初始化基本属性
         self.initialized = False
         self.token_threshold = self.scheduler_config.get("scheduler", {}).get("token_threshold", 128)  # 从调度器配置中获取阈值
+        self.min_threshold = 64
+        self.max_threshold = 256
+        self.dynamic_threshold = self.token_threshold
         
         # 验证配置
         self._validate_config()
         
         # 初始化分配器
         self._init_allocator()
+    
+    def allocate_task(self, prompt: str, model_name: str, threshold: int) -> str:
+        """
+        分配单个任务。
+        
+        Args:
+            prompt: 输入提示
+            model_name: 模型名称
+            threshold: 令牌阈值
+            
+        Returns:
+            分配的硬件名称
+        """
+        if not self.initialized:
+            raise RuntimeError("分配器未初始化")
+        
+        # 根据阈值选择硬件
+        if threshold <= self.min_threshold:
+            return "nvidia_rtx4050"  # 小任务使用RTX 4050
+        elif threshold > self.max_threshold:
+            return "nvidia_rtx4050"  # 大任务也使用RTX 4050（因为只有这一个设备）
+        else:
+            return "nvidia_rtx4050"
+    
+    def update_threshold(self, throughput: float) -> None:
+        """
+        更新动态阈值。
+        
+        Args:
+            throughput: 吞吐量（令牌/秒）
+        """
+        if throughput <= 0:
+            return
+        
+        # 根据吞吐量调整阈值
+        if throughput > 100:  # 吞吐量高，可以增加阈值
+            self.dynamic_threshold = min(self.dynamic_threshold * 1.1, self.max_threshold)
+        elif throughput < 50:  # 吞吐量低，需要降低阈值
+            self.dynamic_threshold = max(self.dynamic_threshold * 0.9, self.min_threshold)
+        
+        # 确保阈值在合理范围内
+        self.dynamic_threshold = min(max(self.dynamic_threshold, self.min_threshold), self.max_threshold)
+        
+        logger.info(f"更新动态阈值为: {self.dynamic_threshold}")
     
     def _validate_config(self) -> None:
         """验证配置。"""
@@ -131,24 +178,27 @@ class TaskAllocator(BaseAllocator):
             raise ValueError("总令牌数必须大于 0")
         
         # 由于只有 RTX 4050，所以直接返回
-        return "nvidia_rtx4050"
+        return "rtx4050"
     
-    def allocate(self, tasks: List[Dict[str, Any]], model_name: str) -> List[Dict[str, Any]]:
+    def allocate(self, tasks: List[Dict[str, Any]], model_name: str = "tinyllama") -> List[Dict[str, Any]]:
         """
         分配任务。
         
         Args:
             tasks: 任务列表，每个任务包含以下字段：
-                - input_tokens: 输入令牌数
-                - output_tokens: 输出令牌数
-                - model: 模型名称
+                - query: 查询信息，包含：
+                    - input_tokens: 输入令牌数
+                    - output_tokens: 输出令牌数
+                    - prompt: 输入提示
+                - hardware: 分配的硬件
             model_name: 模型名称
                 
         Returns:
             分配后的任务列表，每个任务包含以下字段：
-                - input_tokens: 输入令牌数
-                - output_tokens: 输出令牌数
-                - model: 模型名称
+                - metrics: 性能指标
+                    - energy: 能耗（焦耳）
+                    - runtime: 运行时间（秒）
+                    - throughput: 吞吐量（令牌/秒）
                 - hardware: 分配的硬件
         """
         if not self.initialized:
@@ -161,17 +211,21 @@ class TaskAllocator(BaseAllocator):
             # 验证任务
             if not isinstance(task, dict):
                 raise ValueError("任务必须是字典")
-            if "input_tokens_count" not in task or "output_tokens_count" not in task:
-                raise ValueError("任务必须包含 input_tokens_count 和 output_tokens_count 字段")
+            if "query" not in task:
+                raise ValueError("任务必须包含 query 字段")
+            if not isinstance(task["query"], dict):
+                raise ValueError("query 必须是字典")
+            if "input_tokens" not in task["query"] or "output_tokens" not in task["query"]:
+                raise ValueError("query 必须包含 input_tokens 和 output_tokens 字段")
             
-            input_tokens = task["input_tokens_count"]
-            output_tokens = task["output_tokens_count"]
+            input_tokens = task["query"]["input_tokens"]
+            output_tokens = task["query"]["output_tokens"]
             
             # 验证令牌数
             if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
-                raise ValueError("input_tokens_count 和 output_tokens_count 必须是整数")
+                raise ValueError("input_tokens 和 output_tokens 必须是整数")
             if input_tokens < 0 or output_tokens < 0:
-                raise ValueError("input_tokens_count 和 output_tokens_count 不能为负数")
+                raise ValueError("input_tokens 和 output_tokens 不能为负数")
             
             # 验证模型
             if model_name not in self.model_config["models"]:
@@ -185,11 +239,17 @@ class TaskAllocator(BaseAllocator):
             if hardware not in self.hardware_config:
                 raise ValueError(f"未知的硬件: {hardware}")
             
-            allocated_task = task.copy()
-            allocated_task.update({
-                "model": model_name,
+            # 创建任务
+            task_fn = lambda: None  # 模拟任务函数
+            
+            # 使用分析器测量性能
+            profiler = get_profiler(hardware, self.hardware_config[hardware])
+            metrics = profiler.measure(task_fn, input_tokens=input_tokens, output_tokens=output_tokens)
+            
+            allocated_task = {
+                "metrics": metrics,
                 "hardware": hardware
-            })
+            }
             allocated_tasks.append(allocated_task)
         
         return allocated_tasks
