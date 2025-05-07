@@ -30,7 +30,7 @@ class MockModel:
         self.max_length = config.get("max_length", 2048)
         
         # 创建一个简单的线性层作为模拟
-        self.linear = nn.Linear(self.hidden_size, self.intermediate_size)
+        self.linear = nn.Linear(self.hidden_size, self.hidden_size)
         
         # 创建模拟的tokenizer
         self.tokenizer = MockTokenizer()
