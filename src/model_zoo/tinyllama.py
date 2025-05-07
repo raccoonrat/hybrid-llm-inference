@@ -4,9 +4,11 @@ import os
 import logging
 from typing import Dict, Any, Optional, List
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig, LlamaForCausalLM, LlamaTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from safetensors.torch import load_file
 from src.model_zoo.base_model import BaseModel
 from toolbox.logger import get_logger
+import json
 
 logger = get_logger(__name__)
 
@@ -96,34 +98,6 @@ class TinyLlama(BaseModel):
             return
         self._load_model()
 
-    def _validate_model_config(self, config: LlamaConfig) -> None:
-        """验证模型配置是否符合TinyLlama的预期。
-
-        Args:
-            config: 从模型加载的配置
-
-        Raises:
-            ValueError: 如果配置不符合TinyLlama的预期
-        """
-        # 验证关键参数
-        expected_params = {
-            "model_type": "llama",
-            "vocab_size": 32000,
-            "hidden_size": 2048,
-            "intermediate_size": 5632,
-            "num_hidden_layers": 22,
-            "num_attention_heads": 32,
-            "num_key_value_heads": 32,
-            "max_position_embeddings": 2048
-        }
-
-        for param, expected_value in expected_params.items():
-            actual_value = getattr(config, param, None)
-            if actual_value != expected_value:
-                self.logger.warning(
-                    f"模型参数 {param} 的值 ({actual_value}) 与TinyLlama的预期值 ({expected_value}) 不符"
-                )
-
     def _load_model(self) -> None:
         """加载模型。"""
         if os.getenv("TEST_MODE") == "1":
@@ -131,68 +105,90 @@ class TinyLlama(BaseModel):
             return
 
         try:
-            # 正常模式下加载模型和分词器
-            self._model = AutoModelForCausalLM.from_pretrained(
-                self.model_path,
-                torch_dtype=torch.float16 if self.config.get("dtype") == "float16" else torch.float32,
-                device_map="auto" if torch.cuda.is_available() else None,
+            # 设置设备
+            device = torch.device(self.config.get("device", "cuda") if torch.cuda.is_available() else "cpu")
+            
+            # 加载分词器
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self.config["model_path"],
                 trust_remote_code=True
             )
             
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                self.model_path,
+            # 设置特殊令牌
+            if self._tokenizer.pad_token is None:
+                self._tokenizer.pad_token = self._tokenizer.eos_token
+            
+            # 加载模型配置
+            model_config = AutoConfig.from_pretrained(
+                self.config["model_path"],
                 trust_remote_code=True
             )
-
-            self.logger.info(f"成功加载模型: {self.model_path}")
-
+            
+            # 读取config.json并同步参数
+            config_json_path = os.path.join(self.config["model_path"], "config.json")
+            with open(config_json_path, "r", encoding="utf-8") as f:
+                config_dict = json.load(f)
+            for k, v in config_dict.items():
+                setattr(model_config, k, v)
+            logger.info("已从config.json同步模型配置参数")
+            
+            # 加载模型
+            self._model = AutoModelForCausalLM.from_pretrained(
+                self.config["model_path"],
+                config=model_config,
+                torch_dtype=torch.float16 if self.config.get("dtype") == "float16" else torch.float32,
+                device_map="auto",
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
+            )
+            
+            # 设置模型配置
+            self._model.config.pad_token_id = self._tokenizer.pad_token_id
+            
+            logger.info(f"成功加载TinyLlama模型和分词器")
+            
         except Exception as e:
-            error_msg = f"模型加载失败。请检查模型路径 '{self.model_path}' 是否正确。\n错误详情: {str(e)}"
-            self.logger.error(error_msg)
+            error_msg = f"模型加载失败。请检查模型路径 '{self.config['model_path']}' 是否正确。\n错误详情: {str(e)}"
+            logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-    def generate(self, input_text: str, max_tokens: Optional[int] = None, temperature: float = 0.7) -> str:
-        """生成文本。"""
-        if not input_text:
-            raise ValueError("输入文本不能为空")
+    def generate(self, input_text: str, **kwargs) -> str:
+        """生成文本。
 
-        if len(input_text) > self.max_length:
-            raise ValueError(f"输入文本长度超过最大限制 {self.max_length}")
+        Args:
+            input_text: 输入文本
+            **kwargs: 其他参数
 
+        Returns:
+            生成的文本
+        """
         try:
-            if os.getenv("TEST_MODE") == "1":
-                return self._model.generate(input_text)
-
-            # 编码输入文本
-            inputs = self._tokenizer(input_text, return_tensors="pt")
+            # 对输入进行编码
+            inputs = self._tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
+            inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
             
-            # 在测试模式下，不进行设备转换
-            if not os.getenv("TEST_MODE") == "1" and self.device == "cuda" and torch.cuda.is_available():
-                inputs = {k: v.cuda() for k, v in inputs.items()}
-
-            # 生成输出
-            with torch.no_grad():
-                outputs = self._model.generate(
-                    **inputs,
-                    max_length=max_tokens or self.max_length,
-                    temperature=temperature,
-                    do_sample=True,
-                    pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id
-                )
-
+            # 生成
+            outputs = self._model.generate(
+                **inputs,
+                max_length=kwargs.get("max_length", self.max_length),
+                num_return_sequences=1,
+                pad_token_id=self._tokenizer.pad_token_id,
+                eos_token_id=self._tokenizer.eos_token_id,
+            )
+            
             # 解码输出
             generated_text = self._tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
             return generated_text
-
+            
         except Exception as e:
-            if os.getenv("TEST_MODE") == "1":
-                return f"测试模式响应: {input_text}"
-            raise RuntimeError(f"生成文本时出错: {str(e)}")
+            error_msg = f"文本生成失败: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
     def inference(self, input_text: str, max_tokens: Optional[int] = None) -> str:
         """执行推理。"""
-        return self.generate(input_text, max_tokens=max_tokens)
+        return self.generate(input_text, max_length=max_tokens)
 
     def _do_inference(self, input_text: str) -> str:
         """执行实际的推理操作。"""
@@ -256,4 +252,10 @@ class TinyLlama(BaseModel):
                 "avg_tokens_per_second": 0.0,
                 "avg_time_per_call": 0.0
             }
-        return super().get_metrics() 
+        return super().get_metrics()
+
+    def load_state_dict(self, state_dict):
+        """转发 load_state_dict 到内部模型。"""
+        if self._model and hasattr(self._model, "load_state_dict"):
+            return self._model.load_state_dict(state_dict)
+        raise AttributeError("TinyLlama 内部模型未初始化或不支持 load_state_dict") 

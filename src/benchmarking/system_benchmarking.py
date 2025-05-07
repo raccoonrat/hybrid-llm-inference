@@ -261,13 +261,12 @@ class SystemBenchmarking(BaseBenchmarking):
             for i, task in enumerate(tasks):
                 logger.info(f"开始运行任务 {i}")
                 task_result = self._run_task(task)
-                
-                # 更新指标
-                results["metrics"]["latency"]["value"] += task_result.get("latency", 0.0)
-                results["metrics"]["throughput"]["value"] += task_result.get("throughput", 0.0)
-                results["metrics"]["memory"]["value"] += task_result.get("memory", 0.0)
-                results["metrics"]["energy"]["value"] += task_result.get("energy", 0.0)
-                results["metrics"]["runtime"]["value"] += task_result.get("runtime", 0.0)
+                # 修复：确保聚合的指标为数值类型
+                for metric in ["latency", "throughput", "memory", "energy", "runtime"]:
+                    value = task_result.get(metric, 0.0)
+                    if isinstance(value, dict):
+                        value = value.get("value", 0.0)
+                    results["metrics"][metric]["value"] += value
             
             # 计算平均值
             num_tasks = len(tasks)
@@ -308,7 +307,7 @@ class SystemBenchmarking(BaseBenchmarking):
             
             # 获取任务输入
             input_text = task.get("input", "")
-            if not input_text:
+            if "input" not in task:
                 raise ValueError("任务缺少输入文本")
             
             # 运行任务

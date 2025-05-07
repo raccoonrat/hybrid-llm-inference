@@ -45,7 +45,7 @@ models:
   TinyLlama-1.1B-Chat-v1.0:
     model_name: TinyLlama-1.1B-Chat-v1.0
     type: local
-    model_path: "D:/models/TinyLlama-1.1B-Chat-v1.0"
+    model_path: "D:\\models\\TinyLlama-1.1B-Chat-v1.0"
     mode: local
     tokenizer: auto
     max_length: 2048
