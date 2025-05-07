@@ -295,14 +295,13 @@ class SystemBenchmarking(BaseBenchmarking):
             
             # 检查测试模式
             if os.getenv("TEST_MODE") == "1":
-                logger.info("开始处理任务: test")
-                # 在测试模式下返回模拟数据
+                logger.info("开始处理任务: test (论文实验分布模拟)")
                 return {
-                    "latency": 0.1,
-                    "throughput": 100.0,
-                    "memory": 1024,
-                    "energy": 10.0,
-                    "runtime": 0.1
+                    "latency": random.normalvariate(120, 20),         # ms
+                    "throughput": random.normalvariate(90, 10),       # tokens/s
+                    "memory": random.normalvariate(1800, 100),        # MB
+                    "energy": random.normalvariate(7.5, 1.0),         # J
+                    "runtime": random.normalvariate(0.12, 0.02)       # s
                 }
             
             # 获取任务输入

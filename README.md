@@ -608,3 +608,150 @@ cp configs/example_scheduler_config.yaml configs/scheduler_config.yaml
    - 不要将包含敏感信息的配置文件提交到git
    - 保持示例配置文件更新，以便其他开发者参考
    - 在文档中说明所有配置选项的用途
+
+## 测试模式运行
+
+你可以通过设置环境变量 TEST_MODE=1 来以测试模式运行主程序，无需加载真实大模型，适合快速验证流程和功能。
+
+Windows PowerShell 下命令示例：
+
+```powershell
+$env:TEST_MODE=1; python run.py
+```
+
+Linux/macOS 下命令示例：
+
+```bash
+TEST_MODE=1 python run.py
+```
+
+测试模式下会自动使用 MockModel 和模拟数据，适合开发调试和单元测试。
+
+## 系统架构
+
+```mermaid
+graph TD
+  %% 系统模块
+  subgraph System
+    HardwareProfiling[Hardware Profiling Module]
+    ModelZoo[Model Zoo Module]
+    DataProcessing[Data Processing Module]
+    Scheduling[Scheduling Module]
+    OptimizationEngine[Optimization Engine Module]
+    Benchmarking[Benchmarking Module]
+    DatasetManager[Dataset Manager Module]
+    Toolbox[Toolbox Module]
+  end
+
+  %% 硬件监控模块
+  subgraph HardwareProfiling
+    NVIDIAProfiling[NVIDIA GPU Profiling<br>PyJoules, NVML]
+    AppleSiliconProfiling[Apple Silicon CPU/GPU Profiling<br>powermetrics]
+    IntelCPUProfiling[Intel CPU Profiling<br>PyJoules, RAPL]
+    AMDCPUProfiling[AMD CPU Profiling<br>AMD μProf, psutil]
+  end
+
+  %% 模型动物园模块
+  subgraph ModelZoo
+    Falcon[Falcon 7B]
+    Llama2[Llama-2 7B]
+    Mistral[Mistral 7B]
+  end
+
+  %% 数据处理模块
+  subgraph DataProcessing
+    DataLoader[Data Loader<br>Loads Alpaca dataset]
+    TokenProcessing[Token Processing<br>Extracts input/output tokens]
+  end
+
+  %% 调度模块
+  subgraph Scheduling
+    TokenBasedScheduler[Token-Based Scheduler<br>Assigns tasks based on T_in, T_out]
+    TaskAllocator[Task Allocator<br>M1 Pro or A100]
+  end
+
+  %% 优化引擎模块
+  subgraph OptimizationEngine
+    CostFunction["Cost Function<br>U(m,n,s) = λE + (1-λ)R"]
+    ThresholdOptimizer[Threshold Optimizer<br>Computes T_in, T_out]
+    TradeoffAnalyzer[Tradeoff Analyzer<br>Energy vs. Runtime]
+  end
+
+  %% 基准测试模块
+  subgraph Benchmarking
+    ModelBenchmarking[Model Benchmarking<br>Evaluates model performance]
+    SystemBenchmarking[System Benchmarking<br>Measures energy & runtime]
+  end
+
+  %% 数据集管理模块
+  subgraph DatasetManager
+    AlpacaLoader[Alpaca Loader<br>Loads 52K prompts]
+    TokenDistribution[Token Distribution<br>Analyzes input/output tokens]
+  end
+
+  %% 工具箱模块
+  subgraph Toolbox
+    Logger[Logger<br>Records system logs]
+    ConfigManager[Config Manager<br>Manages hardware/model configs]
+    AccelerateWrapper[Accelerate Wrapper<br>Huggingface Accelerate]
+  end
+
+  %% 模块之间的关系
+  HardwareProfiling -->|Energy & Performance Data| Scheduling
+  HardwareProfiling -->|Energy Metrics| OptimizationEngine
+  HardwareProfiling -->|Energy & Runtime| Benchmarking
+  ModelZoo -->|Model Parameters| Scheduling
+  ModelZoo -->|Performance Data| Benchmarking
+  DataProcessing -->|Token Counts| Scheduling
+  DataProcessing -->|Token Data| OptimizationEngine
+  DatasetManager -->|Token Distribution| OptimizationEngine
+  OptimizationEngine -->|Thresholds T_in, T_out| Scheduling
+  Benchmarking -->|Performance Reports| Scheduling
+  Toolbox -->|Logs & Configs| Scheduling
+  Toolbox -->|Logs & Configs| HardwareProfiling
+  Toolbox -->|Logs & Configs| ModelZoo
+  Toolbox -->|Logs & Configs| DataProcessing
+  Toolbox -->|Logs & Configs| OptimizationEngine
+  Toolbox -->|Logs & Configs| Benchmarking
+  Toolbox -->|Logs & Configs| DatasetManager
+  DataProcessing -->|Input Data| ModelZoo
+  Scheduling -->|Task Allocation| HardwareProfiling
+
+  %% 硬件监控模块内部关系
+  NVIDIAProfiling --> HardwareProfiling
+  AppleSiliconProfiling --> HardwareProfiling
+  IntelCPUProfiling --> HardwareProfiling
+  AMDCPUProfiling --> HardwareProfiling
+
+  %% 模型动物园模块内部关系
+  Falcon --> ModelZoo
+  Llama2 --> ModelZoo
+  Mistral --> ModelZoo
+
+  %% 数据处理模块内部关系
+  DataLoader -->|Raw Data| TokenProcessing
+  TokenProcessing --> DataProcessing
+
+  %% 调度模块内部关系
+  TokenBasedScheduler -->|Scheduling Decisions| TaskAllocator
+  TaskAllocator --> Scheduling
+
+  %% 优化引擎模块内部关系
+  CostFunction -->|Cost Metrics| ThresholdOptimizer
+  ThresholdOptimizer -->|Thresholds| TradeoffAnalyzer
+  TradeoffAnalyzer --> OptimizationEngine
+
+  %% 基准测试模块内部关系
+  ModelBenchmarking --> Benchmarking
+  SystemBenchmarking --> Benchmarking
+
+  %% 数据集管理模块内部关系
+  AlpacaLoader -->|Prompts| TokenDistribution
+  TokenDistribution --> DatasetManager
+
+  %% 工具箱模块内部关系
+  Logger --> Toolbox
+  ConfigManager --> Toolbox
+  AccelerateWrapper -->|Optimization| ModelZoo
+  AccelerateWrapper -->|Optimization| Scheduling
+```

@@ -221,3 +221,6 @@ configs/
 !test_*.json
 !example_*.json
 !sample_*.json
+
+# 忽略 data/benchmarking 目录下所有文件
+/data/benchmarking/

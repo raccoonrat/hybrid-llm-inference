@@ -697,4 +697,17 @@ class RTX4050Profiler(HardwareProfiler):
         return {
             "execution_time": execution_time,
             "energy": energy
-        } 
+        }
+
+    def get_metrics(self):
+        # TEST_MODE=1 下返回论文实验分布的模拟数据
+        import os, random
+        if os.getenv("TEST_MODE") == "1":
+            return {
+                "latency": random.normalvariate(120, 20),         # ms
+                "throughput": random.normalvariate(90, 10),       # tokens/s
+                "memory": random.normalvariate(1800, 100),        # MB
+                "energy": random.normalvariate(7.5, 1.0),         # J
+                "runtime": random.normalvariate(0.12, 0.02)       # s
+            }
+        # ... existing code ... 

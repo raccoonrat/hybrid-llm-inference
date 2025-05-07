@@ -6,6 +6,9 @@ from typing import Dict, Any, List, Optional
 import torch
 import torch.nn as nn
 from toolbox.logger import get_logger
+import os
+import random
+import time
 
 logger = get_logger(__name__)
 
@@ -73,6 +76,11 @@ class MockModel(nn.Module):
         Returns:
             生成的响应文本
         """
+        # TEST_MODE=1 下模拟推理延迟和输出
+        if os.getenv("TEST_MODE") == "1":
+            delay = random.normalvariate(0.12, 0.02)  # 论文实验分布，单位秒
+            time.sleep(max(0, delay))
+            return "模拟输出"
         return f"测试模式响应: {input_text}"
         
     def get_token_count(self, text: str) -> int:
