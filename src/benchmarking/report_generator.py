@@ -225,69 +225,48 @@ class ReportGenerator:
         plt.close('all')
         return chart_files
 
-    def generate_report(self, data: Dict[str, Any], output_format: str = "json", include_visualizations: bool = True) -> str:
+    def generate_report(self, benchmark_results: Dict[str, Any], tradeoff_results: Optional[Dict[str, Any]] = None) -> str:
         """生成基准测试报告。
 
         Args:
-            data: 基准测试数据
-            output_format: 输出格式，支持 "json"、"html"、"csv" 和 "markdown"
-            include_visualizations: 是否包含可视化图表
+            benchmark_results: 基准测试结果
+            tradeoff_results: 权衡分析结果（可选）
 
         Returns:
             报告文件路径
 
         Raises:
-            ValueError: 当输入数据无效或输出格式不支持时
+            ValueError: 当输入数据无效时
         """
         # 验证输入数据
-        self._validate_data(data)
+        self._validate_data(benchmark_results)
         
         # 生成可视化图表
         chart_files = []
-        if include_visualizations:
-            try:
-                chart_files = self._generate_visualizations(data)
-                # 生成权衡曲线
-                curve_path = os.path.join(self.output_dir, "tradeoff_curve.png")
-                self._plot_tradeoff_curve(data, curve_path)
-            except Exception as e:
-                logger.warning(f"生成可视化图表时出错: {str(e)}")
-
-        # 根据输出格式生成报告
-        if output_format == "json":
-            report_path = os.path.join(self.output_dir, "report.json")
-            with open(report_path, "w", encoding="utf-8") as f:
-                # 添加图表路径到数据中
-                if chart_files:
-                    data["visualizations"] = [os.path.basename(f) for f in chart_files]
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        elif output_format == "html":
-            report_path = os.path.join(self.output_dir, "report.html")
-            html_content = self._generate_html_report(data)
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(html_content)
-        elif output_format == "csv":
-            report_path = os.path.join(self.output_dir, "report.csv")
-            # 将数据扁平化为CSV格式
-            df = pd.DataFrame()
-            if "metrics" in data:
-                metrics = data["metrics"]
-                for key, value in metrics.items():
-                    if isinstance(value, (int, float)):
-                        df[key] = [value]
-                    elif isinstance(value, list):
-                        df[key] = [",".join(map(str, value))]
-                    elif isinstance(value, dict):
-                        for sub_key, sub_value in value.items():
-                            df[f"{key}_{sub_key}"] = [sub_value]
-            df.to_csv(report_path, index=False)
-        elif output_format == "markdown":
-            report_path = os.path.join(self.output_dir, "report.md")
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(self._generate_markdown(data))
-        else:
-            raise ValueError("不支持的报告格式")
+        try:
+            chart_files = self._generate_visualizations(benchmark_results)
+        except Exception as e:
+            logger.warning(f"生成可视化图表失败: {str(e)}")
         
+        # 生成报告文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.json")
+        
+        # 准备报告数据
+        report_data = {
+            "timestamp": timestamp,
+            "benchmark_results": benchmark_results,
+            "visualizations": chart_files
+        }
+        
+        if tradeoff_results:
+            report_data["tradeoff_results"] = tradeoff_results
+        
+        # 保存报告
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f, indent=4, ensure_ascii=False)
+        
+        logger.info(f"报告已生成: {report_path}")
         return report_path
     
     def generate_tradeoff_curve(self, data: Dict[str, Any]) -> str:

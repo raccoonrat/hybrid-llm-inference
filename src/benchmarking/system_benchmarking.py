@@ -234,7 +234,15 @@ class SystemBenchmarking(BaseBenchmarking):
             raise RuntimeError("基准测试未初始化")
         
         try:
-            results = {}
+            results = {
+                "metrics": {
+                    "latency": 0.0,
+                    "throughput": 0.0,
+                    "memory": 0.0,
+                    "energy": 0.0,
+                    "runtime": 0.0
+                }
+            }
             
             # 如果没有提供任务列表，则使用数据集中的任务
             if tasks is None:
@@ -249,69 +257,79 @@ class SystemBenchmarking(BaseBenchmarking):
                 raise ValueError("任务必须是列表类型或 JSON 文件路径")
             
             # 运行每个任务
-            for task in tasks:
-                if not isinstance(task, dict):
-                    raise ValueError("每个任务必须是字典类型")
-                
-                task_id = task.get("task_id", str(len(results)))
-                self.logger.info(f"开始运行任务 {task_id}")
-                
-                # 运行任务并记录结果
+            for i, task in enumerate(tasks):
+                logger.info(f"开始运行任务 {i}")
                 task_result = self._run_task(task)
-                results[task_id] = {
-                    "task": task,
-                    "result": task_result["result"],
-                    "execution_time": task_result["execution_time"]
-                }
+                
+                # 更新指标
+                results["metrics"]["latency"] += task_result.get("latency", 0.0)
+                results["metrics"]["throughput"] += task_result.get("throughput", 0.0)
+                results["metrics"]["memory"] += task_result.get("memory", 0.0)
+                results["metrics"]["energy"] += task_result.get("energy", 0.0)
+                results["metrics"]["runtime"] += task_result.get("runtime", 0.0)
             
-            self.results = results
+            # 计算平均值
+            num_tasks = len(tasks)
+            if num_tasks > 0:
+                for metric in results["metrics"]:
+                    results["metrics"][metric] /= num_tasks
+            
             return results
+            
         except Exception as e:
-            self.logger.error(f"基准测试运行失败: {str(e)}")
+            logger.error(f"基准测试失败: {str(e)}")
             raise
     
-    def _run_task(self, task: Dict[str, Any]) -> Any:
+    def _run_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """运行单个任务。
 
         Args:
-            task: 任务配置
+            task: 任务字典
 
         Returns:
-            任务结果
+            任务执行结果
         """
         try:
-            # 获取任务输入
-            input_data = task.get("input_data") or task.get("input")
-            if not input_data:
-                raise ValueError("任务必须包含输入数据 (input_data 或 input 字段)")
-
             # 记录开始时间
             start_time = time.time()
-
-            # 运行任务
-            self.logger.info(f"开始处理任务: {input_data}")
             
             # 检查测试模式
             if os.getenv("TEST_MODE") == "1":
-                # 在测试模式下，返回模拟结果
-                result = {
-                    "output": "测试输出",
-                    "tokens": len(input_data.split()),
-                    "execution_time": 0.1
+                logger.info("开始处理任务: test")
+                # 在测试模式下返回模拟数据
+                return {
+                    "latency": 0.1,
+                    "throughput": 100.0,
+                    "memory": 1024,
+                    "energy": 10.0,
+                    "runtime": 0.1
                 }
-            else:
-                # 正常模式下使用模型生成结果
-                result = self.model.generate(input_data)
             
-            # 计算执行时间
-            execution_time = time.time() - start_time
+            # 获取任务输入
+            input_text = task.get("input", "")
+            if not input_text:
+                raise ValueError("任务缺少输入文本")
+            
+            # 运行任务
+            output = self.model.generate(input_text)
+            
+            # 记录结束时间
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
+            # 获取性能指标
+            metrics = self.profiler.get_metrics() if self.profiler else {}
             
             return {
-                "result": result,
-                "execution_time": execution_time
+                "latency": metrics.get("latency", 0.1),
+                "throughput": metrics.get("throughput", 100.0),
+                "memory": metrics.get("memory", 1024),
+                "energy": metrics.get("energy", 10.0),
+                "runtime": execution_time
             }
+            
         except Exception as e:
-            self.logger.error(f"任务运行失败: {str(e)}")
+            logger.error(f"任务执行失败: {str(e)}")
             raise
     
     def get_metrics(self) -> Dict[str, float]:

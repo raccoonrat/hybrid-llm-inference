@@ -17,6 +17,7 @@ import pandas as pd
 import pickle
 import torch
 import copy
+import os
 
 def main():
     logger = get_logger(__name__)
@@ -46,12 +47,46 @@ def main():
         dataset_path = "data/alpaca_data.json"
         df = AlpacaLoader(dataset_path).load_data()
         
+        # 加载模型配置
+        model_config_path = os.path.join(os.path.dirname(__file__), "..", "configs", "model_config.yaml")
+        with open(model_config_path, "r", encoding="utf-8") as f:
+            model_config_all = yaml.safe_load(f)
+        
+        # 加载调度器配置
+        scheduler_config_path = os.path.join(os.path.dirname(__file__), "..", "configs", "scheduler_config.yaml")
+        with open(scheduler_config_path, "r", encoding="utf-8") as f:
+            scheduler_config = yaml.safe_load(f)
+        
+        # 获取模型配置
+        model_type = os.getenv("MODEL_TYPE", "TinyLlama-1.1B-Chat-v1.0")
+        model_config = model_config_all["models"].get(model_type, {})
+        if not model_config:
+            raise ValueError(f"未知的模型类型: {model_type}")
+        
+        # 确保 search_range 是元组
+        if "search_range" in model_config:
+            if isinstance(model_config["search_range"], list):
+                model_config["search_range"] = tuple(model_config["search_range"])
+            elif not isinstance(model_config["search_range"], tuple):
+                raise ValueError("search_range 必须是列表或元组")
+        else:
+            model_config["search_range"] = (16, 100)  # 默认值
+        
+        # SystemBenchmarking 需要 config 字典
+        system_benchmarking_config = {
+            "model_name": model_type,
+            "batch_size": model_config.get("batch_size", 1),
+            "dataset_path": dataset_path,
+            "model_config": model_config_all,  # 使用完整的模型配置
+            "hardware_config": copy.deepcopy(hardware_config),
+            "output_dir": "data/benchmarking",
+            "scheduler_config": scheduler_config,
+            "model_path": model_config.get("model_path", ""),
+            "device": device,
+            "dtype": model_config.get("dtype", "float32")
+        }
+        
         # 初始化TokenProcessing
-        model_config_all = config_manager.load_config("model_config.yaml")
-        ensure_tuple_search_range(model_config_all)
-        model_type = "tinyllama"
-        model_config = model_config_all["models"][model_type]
-        ensure_tuple_search_range(model_config)
         token_processor = TokenProcessing(model_name=model_type, model_config=model_config)
         tokenized_tasks = token_processor.process_tokens([{"input": row["text"]} for _, row in df.iterrows()])
         logger.info(f"Loaded and processed {len(tokenized_tasks)} tasks")
@@ -99,7 +134,6 @@ def main():
         logger.info(f"Optimized thresholds: {thresholds}")
         
         # Schedule and allocate tasks
-        scheduler_config = config_manager.load_config("scheduler_config.yaml")
         scheduler_config["token_threshold"] = thresholds
         scheduler_config["hardware_config"] = hardware_config
         scheduler_config["model_config"] = model_config_all
@@ -124,6 +158,17 @@ def main():
             # 跳过总令牌数为0的任务
             if input_tokens + output_tokens <= 0:
                 continue
+            
+            # 获取硬件映射
+            hardware_name = task.get("hardware", "rtx4050")  # 默认使用 rtx4050
+            hardware_map = scheduler_config.get("hardware_map", {})
+            mapped_hardware = hardware_map.get(hardware_name, hardware_name)
+            
+            # 确保硬件名称存在于硬件配置中
+            if mapped_hardware not in hardware_config["devices"]:
+                logger.warning(f"硬件 {mapped_hardware} 不在配置中，使用默认硬件 rtx4050")
+                mapped_hardware = "rtx4050"
+            
             allocations_for_allocator.append({
                 "query": {
                     "input_tokens": input_tokens,
@@ -131,31 +176,22 @@ def main():
                     "prompt": task.get("input", "")
                 },
                 "model": task.get("model", model_type),
-                "hardware": task.get("hardware", "nvidia_rtx4050")
+                "hardware": mapped_hardware
             })
 
         results = allocator.allocate(allocations_for_allocator, model_name=model_type)
         logger.info(f"Allocated and executed {len(results)} tasks")
         
-        # SystemBenchmarking 需要 config 字典
-        system_benchmarking_config = {
-            "model_name": model_type,
-            "batch_size": model_config.get("batch_size", 1),
-            "dataset_path": dataset_path,
-            "model_config": model_config_all,
-            "hardware_config": copy.deepcopy(hardware_config),
-            "output_dir": "data/benchmarking",
-            "scheduler_config": scheduler_config,
-            "model_path": model_config.get("model_path", ""),
-            "device": device,
-            "dtype": model_config.get("dtype", "float32")
-        }
         benchmarker = SystemBenchmarking(system_benchmarking_config)
-        benchmark_results = benchmarker.run_benchmarks(thresholds, model_name=model_type, sample_size=1000)
+        benchmark_results = benchmarker.run_benchmarks()
         logger.info("Completed system benchmarking")
         
-        # Analyze tradeoffs
-        analyzer = TradeoffAnalyzer(distribution_path, hardware_config, model_config, output_dir="data/benchmarking")
+        # 创建权衡分析器
+        # 确保每个模型配置都包含必需字段
+        for model_cfg in model_config_all["models"].values():
+            model_cfg["device"] = device
+            model_cfg["dtype"] = model_cfg.get("dtype", "float32")  # 使用默认值 float32
+        analyzer = TradeoffAnalyzer(distribution_path, hardware_config, model_config_all, output_dir="data/benchmarking")
         tradeoff_results = analyzer.analyze(model_name=model_type)
         logger.info("Completed tradeoff analysis")
         

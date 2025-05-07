@@ -36,12 +36,11 @@ class TaskAllocator(BaseAllocator):
         self.is_test_mode = os.environ.get("TEST_MODE", "").lower() == "true"
         
         # 保存配置
-        self.hardware_config = hardware_config
+        if "devices" in hardware_config:
+            self.hardware_config = hardware_config["devices"]
+        else:
+            self.hardware_config = hardware_config
         self.model_config = model_config
-        
-        # 兼容 nvidia_rtx4050 作为 key
-        if isinstance(self.hardware_config, dict) and "rtx4050" in self.hardware_config and "nvidia_rtx4050" not in self.hardware_config:
-            self.hardware_config["nvidia_rtx4050"] = self.hardware_config["rtx4050"].copy()
         
         # 加载调度器配置
         scheduler_config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'scheduler_config.yaml')
@@ -91,11 +90,11 @@ class TaskAllocator(BaseAllocator):
         
         # 根据阈值选择硬件
         if threshold <= self.min_threshold:
-            return "nvidia_rtx4050"  # 小任务使用RTX 4050
+            return "rtx4050"  # 小任务使用RTX 4050
         elif threshold > self.max_threshold:
-            return "nvidia_rtx4050"  # 大任务也使用RTX 4050（因为只有这一个设备）
+            return "rtx4050"  # 大任务也使用RTX 4050（因为只有这一个设备）
         else:
-            return "nvidia_rtx4050"
+            return "rtx4050"
     
     def update_threshold(self, throughput: float) -> None:
         """
@@ -181,8 +180,8 @@ class TaskAllocator(BaseAllocator):
         if total_tokens <= 0:
             raise ValueError("总令牌数必须大于 0")
         
-        # 统一返回 nvidia_rtx4050
-        return "nvidia_rtx4050"
+        # 使用 rtx4050 作为默认硬件
+        return "rtx4050"
     
     def allocate(self, tasks: List[Dict[str, Any]], model_name: str = "tinyllama") -> List[Dict[str, Any]]:
         """
