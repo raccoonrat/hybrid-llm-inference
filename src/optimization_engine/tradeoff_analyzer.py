@@ -100,6 +100,7 @@ class TradeoffAnalyzer:
             with open(result_path, 'w', encoding='utf-8') as f:
                 json.dump(tradeoff_results, f, indent=4, ensure_ascii=False)
             self.logger.info(f"Saved tradeoff results to {result_path}")
+            self._visualize_tradeoff_mock(tradeoff_results)
             return tradeoff_results
         else:
             result_path = self.output_dir / 'tradeoff_results.json'
@@ -126,6 +127,25 @@ class TradeoffAnalyzer:
         plt.title('Energy-Runtime Tradeoff')
         plt.grid(True)
 
+        plot_path = self.output_dir / 'tradeoff_curve.png'
+        plt.savefig(plot_path)
+        plt.close()
+        self.logger.info(f"Saved tradeoff curve to {plot_path}")
+
+    def _visualize_tradeoff_mock(self, tradeoff_results):
+        """使用 mock 数据生成论文风格的能耗-时延权衡曲线。"""
+        runtimes = [v["runtime"] for v in tradeoff_results["values"]]
+        energies = [v["energy"] for v in tradeoff_results["values"]]
+        weights = tradeoff_results["weights"]
+
+        plt.figure(figsize=(8, 6))
+        plt.plot(runtimes, energies, marker='o')
+        for i, l in enumerate(weights):
+            plt.annotate(f"λ={l:.2f}", (runtimes[i], energies[i]))
+        plt.xlabel('Average Runtime (seconds)')
+        plt.ylabel('Average Energy (Joules)')
+        plt.title('Energy-Runtime Tradeoff (Mock)')
+        plt.grid(True)
         plot_path = self.output_dir / 'tradeoff_curve.png'
         plt.savefig(plot_path)
         plt.close()
