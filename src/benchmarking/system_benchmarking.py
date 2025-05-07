@@ -165,7 +165,8 @@ class SystemBenchmarking(BaseBenchmarking):
             
             # 检查测试模式
             if os.getenv("TEST_MODE") == "1":
-                logger.info("测试模式：跳过模型加载")
+                logger.info("测试模式：使用MockModel")
+                self.model = self._create_model(None)  # 传入None表示测试模式
                 return
             
             # 验证模型路径
@@ -501,7 +502,7 @@ class SystemBenchmarking(BaseBenchmarking):
         """创建模型实例。
 
         Args:
-            state_dict: 模型状态字典
+            state_dict: 模型状态字典，在测试模式下为None
 
         Returns:
             模型实例
@@ -539,7 +540,8 @@ class SystemBenchmarking(BaseBenchmarking):
                 raise ValueError(f"不支持的模型类型: {model_type}。目前支持的模型类型包括：tinyllama、mistral")
             
             # 加载模型状态
-            model.load_state_dict(state_dict)
+            if state_dict is not None:
+                model.load_state_dict(state_dict)
             logger.info(f"成功创建并加载模型: {model_type}")
             return model
             

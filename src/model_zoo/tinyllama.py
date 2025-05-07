@@ -52,10 +52,11 @@ class TinyLlama(BaseModel):
             self._tokenizer = self._model.tokenizer
             self.logger.info("成功初始化测试模式的模拟模型和分词器")
             self.initialized = True
-        else:
-            # 非测试模式下，调用父类初始化
-            super().__init__(config)
-            self._load_model()
+            return  # 在测试模式下直接返回，不调用父类初始化
+        
+        # 非测试模式下，调用父类初始化
+        super().__init__(config)
+        self._load_model()
 
         logger.info("TinyLlama 模型初始化完成")
 

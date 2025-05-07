@@ -9,7 +9,7 @@ from toolbox.logger import get_logger
 
 logger = get_logger(__name__)
 
-class MockModel:
+class MockModel(nn.Module):
     """
     模拟模型类，用于测试目的。
     """
@@ -21,6 +21,7 @@ class MockModel:
         Args:
             config: 配置字典
         """
+        super().__init__()
         self.config = config
         self.hidden_size = config.get("hidden_size", 2048)
         self.intermediate_size = config.get("intermediate_size", 5632)
@@ -30,7 +31,7 @@ class MockModel:
         self.max_length = config.get("max_length", 2048)
         
         # 创建一个简单的线性层作为模拟
-        self.linear = nn.Linear(self.hidden_size, self.hidden_size)
+        self.linear = nn.Linear(256, self.hidden_size)
         
         # 创建模拟的tokenizer
         self.tokenizer = MockTokenizer()
@@ -86,9 +87,9 @@ class MockModel:
         """
         return len(text.split())
         
-    def __call__(self, input_ids=None, attention_mask=None, **kwargs):
+    def forward(self, input_ids=None, attention_mask=None, **kwargs):
         """
-        处理模型调用。
+        前向传播。
 
         Args:
             input_ids: 输入ID
@@ -100,7 +101,29 @@ class MockModel:
         """
         batch_size = input_ids.shape[0] if isinstance(input_ids, torch.Tensor) else 1
         seq_len = input_ids.shape[1] if isinstance(input_ids, torch.Tensor) else 3
-        return torch.ones((batch_size, seq_len, self.hidden_size), device=self.device)
+        return torch.ones((batch_size, seq_len, 256), device=self.device)
+
+    def state_dict(self) -> Dict[str, torch.Tensor]:
+        """
+        获取模型状态字典。
+
+        Returns:
+            状态字典
+        """
+        return {
+            'linear.weight': torch.ones((256, self.hidden_size)),
+            'linear.bias': torch.zeros(self.hidden_size)
+        }
+
+    def load_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        """
+        加载模型状态字典。在测试模式下，我们不需要实际加载权重。
+
+        Args:
+            state_dict: 模型状态字典
+        """
+        logger.info("测试模式：跳过加载状态字典")
+        return
 
 class MockTokenizer:
     """
