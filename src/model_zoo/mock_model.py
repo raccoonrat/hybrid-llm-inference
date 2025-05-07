@@ -25,15 +25,15 @@ class MockModel:
             config: 配置字典
         """
         self.config = config
-        self.hidden_size = config.get("hidden_size", 2048)
-        self.intermediate_size = config.get("intermediate_size", 5632)
+        self.hidden_size = config.get("hidden_size", 256)
+        self.intermediate_size = config.get("intermediate_size", 2048)
         self.device = config.get("device", "cuda")
         self.dtype = config.get("dtype", torch.float32)
         self.batch_size = config.get("batch_size", 1)
         self.max_length = config.get("max_length", 2048)
         
         # 创建一个简单的线性层，使用配置中的维度
-        self.linear = nn.Linear(self.hidden_size, self.hidden_size)
+        self.linear = nn.Linear(self.hidden_size, self.intermediate_size)
         
         # 初始化权重
         with torch.no_grad():
