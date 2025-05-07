@@ -32,9 +32,28 @@ class TinyLlama(BaseModel):
         self._model_config = None
         self.initialized = False
         
-        super().__init__(config)
-        
-        if not os.getenv("TEST_MODE"):
+        # 在测试模式下，使用MockModel
+        if os.getenv("TEST_MODE") == "1":
+            self.logger.info("测试模式：使用模拟模型")
+            from .mock_model import MockModel
+            
+            mock_config = {
+                "model_path": self.model_path,
+                "device": self.device,
+                "dtype": self.dtype,
+                "batch_size": self.batch_size,
+                "max_length": self.max_length,
+                "hidden_size": 256,
+                "intermediate_size": 2048
+            }
+            
+            self._model = MockModel(mock_config)
+            self._tokenizer = self._model.tokenizer
+            self.logger.info("成功初始化测试模式的模拟模型和分词器")
+            self.initialized = True
+        else:
+            # 非测试模式下，正常初始化
+            super().__init__(config)
             self._load_model()
 
         logger.info("TinyLlama 模型初始化完成")
@@ -106,26 +125,6 @@ class TinyLlama(BaseModel):
     def _load_model(self) -> None:
         """加载模型。"""
         try:
-            # 在测试模式下使用模拟模型
-            if os.getenv("TEST_MODE") == "1":
-                self.logger.info("测试模式：使用模拟模型")
-                from .mock_model import MockModel
-                
-                mock_config = {
-                    "model_path": self.model_path,
-                    "device": self.device,
-                    "dtype": self.dtype,
-                    "batch_size": self.batch_size,
-                    "max_length": self.max_length,
-                    "hidden_size": 2048,
-                    "intermediate_size": 5632
-                }
-                
-                self._model = MockModel(mock_config)
-                self._tokenizer = self._model.tokenizer
-                self.logger.info("成功初始化测试模式的模拟模型和分词器")
-                return
-
             # 正常模式下加载模型和分词器
             self._model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
