@@ -162,7 +162,11 @@ def main():
             # 获取硬件映射
             hardware_name = task.get("hardware", "rtx4050")  # 默认使用 rtx4050
             hardware_map = scheduler_config.get("hardware_map", {})
-            mapped_hardware = hardware_map.get(hardware_name, hardware_name)
+            mapped_hardware = hardware_map.get(hardware_name)
+            
+            # 如果映射不存在，使用原始硬件名称
+            if mapped_hardware is None:
+                mapped_hardware = hardware_name
             
             # 确保硬件名称存在于硬件配置中
             if mapped_hardware not in hardware_config["devices"]:

@@ -221,17 +221,17 @@ class ModelBenchmarking(BaseBenchmarking):
 
         Returns:
             性能指标字典，包括以下字段：
-            - latency: 延迟
-            - throughput: 吞吐量
-            - memory: 内存使用
-            - energy: 能耗
-            - runtime: 运行时间
+            - latency: 延迟 (ms)
+            - throughput: 吞吐量 (tokens/s)
+            - memory: 内存使用 (MB)
+            - energy: 能耗 (J)
+            - runtime: 运行时间 (s)
         """
         results = self.run_benchmarks()
         return {
-            "latency": results["metrics"]["latency"],
-            "throughput": results["metrics"]["throughput"],
-            "memory": results["metrics"]["memory"],
-            "energy": results["metrics"]["energy"],
-            "runtime": results["metrics"]["runtime"]
+            "latency": {"value": results["metrics"]["latency"]["value"], "unit": "ms"},
+            "throughput": {"value": results["metrics"]["throughput"]["value"], "unit": "tokens/s"},
+            "memory": {"value": results["metrics"]["memory"]["value"], "unit": "MB"},
+            "energy": {"value": results["metrics"]["energy"]["value"], "unit": "J"},
+            "runtime": {"value": results["metrics"]["runtime"]["value"], "unit": "s"}
         }

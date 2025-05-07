@@ -236,11 +236,11 @@ class SystemBenchmarking(BaseBenchmarking):
         try:
             results = {
                 "metrics": {
-                    "latency": 0.0,
-                    "throughput": 0.0,
-                    "memory": 0.0,
-                    "energy": 0.0,
-                    "runtime": 0.0
+                    "latency": {"value": 0.0, "unit": "ms"},  # 毫秒
+                    "throughput": {"value": 0.0, "unit": "tokens/s"},  # 每秒处理的令牌数
+                    "memory": {"value": 0.0, "unit": "MB"},  # 兆字节
+                    "energy": {"value": 0.0, "unit": "J"},  # 焦耳
+                    "runtime": {"value": 0.0, "unit": "s"}  # 秒
                 }
             }
             
@@ -262,17 +262,17 @@ class SystemBenchmarking(BaseBenchmarking):
                 task_result = self._run_task(task)
                 
                 # 更新指标
-                results["metrics"]["latency"] += task_result.get("latency", 0.0)
-                results["metrics"]["throughput"] += task_result.get("throughput", 0.0)
-                results["metrics"]["memory"] += task_result.get("memory", 0.0)
-                results["metrics"]["energy"] += task_result.get("energy", 0.0)
-                results["metrics"]["runtime"] += task_result.get("runtime", 0.0)
+                results["metrics"]["latency"]["value"] += task_result.get("latency", 0.0)
+                results["metrics"]["throughput"]["value"] += task_result.get("throughput", 0.0)
+                results["metrics"]["memory"]["value"] += task_result.get("memory", 0.0)
+                results["metrics"]["energy"]["value"] += task_result.get("energy", 0.0)
+                results["metrics"]["runtime"]["value"] += task_result.get("runtime", 0.0)
             
             # 计算平均值
             num_tasks = len(tasks)
             if num_tasks > 0:
                 for metric in results["metrics"]:
-                    results["metrics"][metric] /= num_tasks
+                    results["metrics"][metric]["value"] /= num_tasks
             
             return results
             
@@ -512,16 +512,21 @@ class SystemBenchmarking(BaseBenchmarking):
                 from ..model_zoo.mock_model import MockModel
                 return MockModel()
             
-            # 根据模型类型创建对应的模型实例
+            # 获取模型类型并转换为小写
             model_type = self.config.get("model_name", "").lower()
-            if model_type == "tinyllama":
+            
+            # 标准化模型名称
+            model_type_normalized = model_type.replace("-", "").replace(".", "").replace(" ", "")
+            
+            # 根据标准化后的模型类型创建对应的模型实例
+            if "tinyllama" in model_type_normalized:
                 from ..model_zoo.tinyllama import TinyLlama
                 model = TinyLlama(self.config)
-            elif model_type == "mistral":
+            elif "mistral" in model_type_normalized:
                 from ..model_zoo.mistral import Mistral
                 model = Mistral(self.config)
             else:
-                raise ValueError(f"不支持的模型类型: {model_type}")
+                raise ValueError(f"不支持的模型类型: {model_type}。目前支持的模型类型包括：tinyllama、mistral")
             
             # 加载模型状态
             model.load_state_dict(state_dict)
