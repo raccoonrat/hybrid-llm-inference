@@ -24,7 +24,6 @@ class MockModel(BaseModel):
         Args:
             config: 配置字典
         """
-        super().__init__(config)
         self.config = config
         self.hidden_size = config.get("hidden_size", 2048)
         self.intermediate_size = config.get("intermediate_size", 5632)
@@ -44,6 +43,10 @@ class MockModel(BaseModel):
         self.response_text = "这是一个模拟的响应。"
         self.token_multiplier = 1.5  # 用于模拟token计数
         
+        super().__init__(config)
+
+    def _load_model(self) -> None:
+        """加载模型。在测试模式下，这个方法只是一个空实现。"""
         if os.getenv('TEST_MODE') == '1':
             self.logger.info("测试模式：跳过模型加载")
             self.model = None
@@ -54,9 +57,9 @@ class MockModel(BaseModel):
             # 在测试模式下不加载实际模型
             self.model = None
             self.tokenizer = None
-            self.logger.info("模拟模型初始化完成")
+            self.logger.info("模拟模型加载完成")
         except Exception as e:
-            self.logger.error(f"模型初始化失败：{str(e)}")
+            self.logger.error(f"模型加载失败：{str(e)}")
             raise
 
     def _validate_base_config(self) -> None:
