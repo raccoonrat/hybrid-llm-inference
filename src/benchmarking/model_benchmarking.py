@@ -147,12 +147,19 @@ class ModelBenchmarking(BaseBenchmarking):
     
     def _init_components(self) -> None:
         """初始化基准测试组件。"""
-        # 从 model_config 中提取 model_path 和 device
-        model_path = self.model_config.get("model_path", "")
-        device = self.model_config.get("device", "cpu")
+        # 从 model_config 中提取配置信息
+        mock_config = {
+            "model_path": self.model_config.get("model_path", ""),
+            "device": self.model_config.get("device", "cpu"),
+            "dtype": self.model_config.get("dtype", "float32"),
+            "batch_size": self.model_config.get("batch_size", 1),
+            "max_length": self.model_config.get("max_length", 2048),
+            "hidden_size": 2048,  # 与TinyLlama配置匹配
+            "intermediate_size": 5632  # 与TinyLlama配置匹配
+        }
         
         # 初始化模型
-        self.model = MockModel(model_path, device)
+        self.model = MockModel(mock_config)
         
         # 加载数据集
         self._load_dataset()
