@@ -22,8 +22,8 @@ class MockModel:
             config: 配置字典
         """
         self.config = config
-        self.hidden_size = config.get("hidden_size", 256)
-        self.intermediate_size = config.get("intermediate_size", 2048)
+        self.hidden_size = config.get("hidden_size", 2048)
+        self.intermediate_size = config.get("intermediate_size", 5632)
         self.device = config.get("device", "cuda")
         self.dtype = config.get("dtype", torch.float32)
         self.batch_size = config.get("batch_size", 1)

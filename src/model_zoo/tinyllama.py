@@ -44,8 +44,8 @@ class TinyLlama(BaseModel):
                 "dtype": self.dtype,
                 "batch_size": self.batch_size,
                 "max_length": self.max_length,
-                "hidden_size": 256,
-                "intermediate_size": 2048
+                "hidden_size": 2048,
+                "intermediate_size": 5632
             }
             
             self._model = MockModel(mock_config)
