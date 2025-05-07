@@ -104,25 +104,29 @@ class TinyLlama(BaseModel):
                 self.logger.info("测试模式：使用模拟模型")
                 from .mock_model import MockModel
                 mock_config = {
-                    "hidden_size": 256,  # 使用正确的维度
-                    "intermediate_size": 1024
+                    "hidden_size": 2048,
+                    "intermediate_size": 5632
                 }
                 self._model = MockModel(mock_config)
                 return
 
             # 设置模型配置
             model_config = {
-                "hidden_size": 256,  # 使用正确的维度
-                "intermediate_size": 1024,
-                "num_attention_heads": 8,
-                "num_hidden_layers": 8,
+                "model_type": "llama",
+                "vocab_size": 32000,
+                "hidden_size": 2048,
+                "intermediate_size": 5632,
+                "num_hidden_layers": 22,
+                "num_attention_heads": 32,
+                "num_key_value_heads": 32,
+                "max_position_embeddings": 2048,
                 "torch_dtype": torch.float16 if self.config.get("dtype") == "float16" else torch.float32
             }
 
             # 加载模型
             self._model = LlamaForCausalLM.from_pretrained(
                 self.model_path,
-                config=model_config,
+                config=LlamaConfig(**model_config),
                 torch_dtype=model_config["torch_dtype"],
                 device_map="auto" if torch.cuda.is_available() else None
             )
