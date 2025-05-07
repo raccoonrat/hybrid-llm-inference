@@ -19,6 +19,7 @@ class TinyLlama(BaseModel):
         Args:
             config: Configuration dictionary containing model parameters
         """
+        # 基础属性初始化
         self.logger = logging.getLogger(__name__)
         self.config = config
         self._validate_config(config)
@@ -31,7 +32,7 @@ class TinyLlama(BaseModel):
         self._tokenizer = None
         self._model_config = None
         self.initialized = False
-        
+
         # 在测试模式下，使用MockModel
         if os.getenv("TEST_MODE") == "1":
             self.logger.info("测试模式：使用模拟模型")
@@ -52,7 +53,7 @@ class TinyLlama(BaseModel):
             self.logger.info("成功初始化测试模式的模拟模型和分词器")
             self.initialized = True
         else:
-            # 非测试模式下，正常初始化
+            # 非测试模式下，调用父类初始化
             super().__init__(config)
             self._load_model()
 
@@ -124,6 +125,10 @@ class TinyLlama(BaseModel):
 
     def _load_model(self) -> None:
         """加载模型。"""
+        if os.getenv("TEST_MODE") == "1":
+            self.logger.info("测试模式：跳过模型加载")
+            return
+
         try:
             # 正常模式下加载模型和分词器
             self._model = AutoModelForCausalLM.from_pretrained(
