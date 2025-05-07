@@ -4,7 +4,7 @@ from pathlib import Path
 from src.toolbox.config_manager import ConfigManager
 from src.toolbox.logger import get_logger
 from src.data_processing.alpaca_loader import AlpacaLoader
-from src.data_processing.token_processing import TokenProcessing
+from src.data_processing.token_processing import TokenProcessing, analyze_token_distribution
 from src.dataset_manager.token_distribution import TokenDistribution
 from src.optimization_engine.threshold_optimizer import ThresholdOptimizer
 from src.optimization_engine.tradeoff_analyzer import TradeoffAnalyzer
@@ -39,7 +39,7 @@ def main():
         hardware_config["device"] = device
         
 
-        print("DEBUG devices:", hardware_config["devices"])
+        
         for k, v in hardware_config["devices"].items():
             print("DEBUG device key:", k, "value type:", type(v))
 
@@ -62,6 +62,15 @@ def main():
         model_config = model_config_all["models"].get(model_type, {})
         if not model_config:
             raise ValueError(f"未知的模型类型: {model_type}")
+        
+        # 自动分析 token 分布（此时 model_config 已定义）
+        analyze_token_distribution(
+            data_path=dataset_path,
+            model_path=model_config.get("model_path", "models/TinyLlama-1.1B-Chat-v1.0"),
+            output_json="data/token_distribution.json",
+            input_hist_png="data/input_token_hist.png",
+            output_hist_png="data/output_token_hist.png"
+        )
         
         # 确保 search_range 是元组
         if "search_range" in model_config:

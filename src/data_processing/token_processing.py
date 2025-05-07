@@ -18,6 +18,7 @@ import psutil
 import tempfile
 from .data_processor import DataProcessor
 from .alpaca_loader import AlpacaLoader
+import json
 
 # 设置中文字体
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
@@ -529,3 +530,55 @@ class TokenProcessing:
             self.initialized = False
         except Exception as e:
             logger.warning(f"清理资源时出错: {str(e)}")
+
+def analyze_token_distribution(
+    data_path="data/alpaca_data.json",
+    model_path="models/TinyLlama-1.1B-Chat-v1.0",
+    output_json="data/token_distribution.json",
+    input_hist_png="data/input_token_hist.png",
+    output_hist_png="data/output_token_hist.png",
+    max_length=None
+):
+    """
+    统计 input/output token 长度分布，保存为 json 并生成直方图。
+    """
+    # 读取数据
+    with open(data_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    processor = TokenProcessor(model_path, max_length=max_length)
+    input_lens = []
+    output_lens = []
+    for item in data:
+        input_text = item.get("input", "")
+        output_text = item.get("output", "")
+        input_tokens = processor.encode(input_text)
+        output_tokens = processor.encode(output_text)
+        input_lens.append(len(input_tokens))
+        output_lens.append(len(output_tokens))
+    # 统计分布
+    from collections import Counter
+    input_dist = dict(Counter(input_lens))
+    output_dist = dict(Counter(output_lens))
+    # 保存 json
+    dist_obj = {
+        "input_distribution": input_dist,
+        "output_distribution": output_dist
+    }
+    with open(output_json, 'w', encoding='utf-8') as f:
+        json.dump(dist_obj, f, ensure_ascii=False, indent=2)
+    # 可视化
+    plt.figure(figsize=(8,4))
+    plt.bar(input_dist.keys(), input_dist.values(), color='skyblue')
+    plt.xlabel('Input Token Length')
+    plt.ylabel('Frequency')
+    plt.title('Input Token Length Distribution')
+    plt.savefig(input_hist_png)
+    plt.close()
+    plt.figure(figsize=(8,4))
+    plt.bar(output_dist.keys(), output_dist.values(), color='salmon')
+    plt.xlabel('Output Token Length')
+    plt.ylabel('Frequency')
+    plt.title('Output Token Length Distribution')
+    plt.savefig(output_hist_png)
+    plt.close()
+    print(f"Token分布已保存到 {output_json}\n直方图已保存到 {input_hist_png} 和 {output_hist_png}")
