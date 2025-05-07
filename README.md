@@ -568,3 +568,43 @@ python src/main.py
 
 ### Summary
 This guide provides a complete workflow to set up the environment, run a test, execute tests, and benchmark the *hybrid-llm-inference* project on an NVIDIA RTX 4050 GPU. The environment is created with a Python virtual environment and dependencies from `requirements.txt`. The `main_rtx4050_test.py` script verifies RTX 4050 functionality with a single Llama-3 inference, while the updated `main.py` runs model and system benchmarks, focusing on RTX 4050. Tests in `test_hardware_profiling.py` and `test_benchmarking.py` validate profiling and benchmarking, ensuring RTX 4050's energy efficiency. Outputs include logs, JSON results, and visualizations in `data/benchmarking/`, confirming the 7.5% energy reduction. Debugging tips address common issues like NVML errors or memory constraints. Next steps include scaling to larger datasets and integrating real `pyjoules` measurements on the RTX 4050.
+
+### 配置文件说明
+
+项目使用YAML格式的配置文件来管理各种设置。所有配置文件都位于`configs/`目录下。为了保护敏感信息和允许不同环境的个性化配置，配置文件不会被提交到版本控制系统。
+
+#### 配置文件结构
+
+1. **模型配置** (`model_config.yaml`)
+   - 定义了所有可用的模型及其参数
+   - 包含模型路径、设备设置、批处理大小等
+   - 复制`example_model_config.yaml`并根据您的环境修改
+
+2. **硬件配置** (`hardware_config.yaml`)
+   - 定义了硬件资源的使用参数
+   - 包含GPU/CPU设置、内存限制、缓存目录等
+   - 复制`example_hardware_config.yaml`并根据您的环境修改
+
+3. **调度器配置** (`scheduler_config.yaml`)
+   - 定义了任务调度和负载均衡策略
+   - 包含队列设置、批处理参数、监控配置等
+   - 复制`example_scheduler_config.yaml`并根据您的环境修改
+
+#### 配置文件设置
+
+1. 首次使用时，将示例配置文件复制为实际配置文件：
+```bash
+cp configs/example_model_config.yaml configs/model_config.yaml
+cp configs/example_hardware_config.yaml configs/hardware_config.yaml
+cp configs/example_scheduler_config.yaml configs/scheduler_config.yaml
+```
+
+2. 根据您的环境修改配置文件：
+   - 更新模型路径
+   - 调整硬件参数
+   - 配置调度策略
+
+3. 注意事项：
+   - 不要将包含敏感信息的配置文件提交到git
+   - 保持示例配置文件更新，以便其他开发者参考
+   - 在文档中说明所有配置选项的用途
