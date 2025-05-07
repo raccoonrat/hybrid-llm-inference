@@ -22,28 +22,33 @@ def _get_nvml_library_path() -> str:
         # Windows 平台，固定路径为 c:\windows\system32\nvml.dll
         nvml_path = "c:\\windows\\system32\\nvml.dll"
     else:
-        # Linux 平台，在 /usr/local/cuda-12.8 下查找
-        cuda_base = "/usr/local/cuda-12.8"
-        cuda_lib_paths = [
-            os.path.join(cuda_base, "lib64"),
-            os.path.join(cuda_base, "lib"),
-            os.path.join(cuda_base, "targets/x86_64-linux/lib/stus"),
-            "/usr/lib64",
-            "/usr/lib"
+        # Linux 平台，搜索多个可能的路径
+        possible_paths = [
+            "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1",  # Ubuntu/Debian
+            "/usr/lib64/libnvidia-ml.so.1",                 # RHEL/CentOS
+            "/usr/lib/libnvidia-ml.so.1",                   # 其他Linux
         ]
         
+        # 如果设置了CUDA_HOME环境变量，也搜索CUDA目录
+        cuda_home = os.getenv("CUDA_HOME")
+        if cuda_home:
+            possible_paths.extend([
+                os.path.join(cuda_home, "lib64/libnvidia-ml.so.1"),
+                os.path.join(cuda_home, "lib/libnvidia-ml.so.1")
+            ])
+        
+        # 搜索路径
         nvml_path = None
-        for path in cuda_lib_paths:
-            test_path = os.path.join(path, "libnvidia-ml.so")
-            if os.path.exists(test_path):
-                nvml_path = test_path
+        for path in possible_paths:
+            if os.path.exists(path):
+                nvml_path = path
                 break
         
         if not nvml_path:
-            raise RuntimeError(f"无法在 {cuda_base} 及系统库目录下找到 NVML 库，请确保已安装 NVIDIA 驱动和 CUDA")
+            raise RuntimeError("无法找到NVML库，请确保已安装NVIDIA驱动")
     
     if not os.path.exists(nvml_path):
-        raise RuntimeError(f"NVML 库不存在: {nvml_path}")
+        raise RuntimeError(f"NVML库不存在: {nvml_path}")
     
     return nvml_path
 
