@@ -309,13 +309,16 @@ class SystemBenchmarking(BaseBenchmarking):
             input_text = task.get("input", "")
             if "input" not in task:
                 raise ValueError("任务缺少输入文本")
-            
+            # 新增详细日志
+            logger.info(f"任务 input 长度: {len(input_text)}，内容摘要: {input_text[:30]}")
             # 运行任务
             output = self.model.generate(input_text)
             
             # 记录结束时间
             end_time = time.time()
             execution_time = end_time - start_time
+            # 新增推理耗时日志
+            logger.info(f"任务推理耗时: {execution_time:.3f} 秒")
             
             # 获取性能指标
             metrics = self.profiler.get_metrics() if self.profiler else {}
