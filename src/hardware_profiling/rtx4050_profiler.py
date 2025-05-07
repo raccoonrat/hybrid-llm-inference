@@ -151,24 +151,24 @@ class RTX4050Profiler(HardwareProfiler):
     def _init_nvml(self) -> None:
         """初始化 NVML。"""
         try:
+            # 新增 device_id 类型检查
+            if not isinstance(self.device_id, int):
+                raise ValueError("device_id 必须为整数")
             if not torch.cuda.is_available():
                 logger.warning("CUDA 不可用，使用 CPU 模式")
                 self.device = torch.device("cpu")
                 self.initialized = True
                 return
-                
             if self.device_id >= torch.cuda.device_count():
                 logger.warning(f"设备 ID {self.device_id} 无效，使用 CPU 模式")
                 self.device = torch.device("cpu")
                 self.initialized = True
                 return
-                
             # 初始化 NVML
             try:
                 pynvml.nvmlInit()
                 self.nvml_initialized = True
                 self.handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_id)
-                
                 # 验证设备类型
                 device_name = pynvml.nvmlDeviceGetName(self.handle)
                 if isinstance(device_name, bytes):
@@ -178,13 +178,12 @@ class RTX4050Profiler(HardwareProfiler):
             except (pynvml.NVMLError_LibraryNotFound, FileNotFoundError) as e:
                 logger.warning(f"NVML 库不可用: {str(e)}，使用 CPU 模式")
                 self.nvml_initialized = False
-                
             self.device = torch.device(f"cuda:{self.device_id}")
             self.initialized = True
             logger.info(f"RTX 4050 性能分析器初始化完成，设备 ID: {self.device_id}")
         except Exception as e:
             logger.error(f"RTX 4050 性能分析器初始化失败: {str(e)}")
-            self.cleanup()
+            # 不再调用 self.cleanup()，直接原样抛出异常
             raise
 
     def measure_power(self) -> float:

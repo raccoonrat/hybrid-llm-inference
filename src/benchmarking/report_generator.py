@@ -232,12 +232,14 @@ class ReportGenerator:
         plt.close('all')
         return chart_files
 
-    def generate_report(self, benchmark_results: Dict[str, Any], tradeoff_results: Optional[Dict[str, Any]] = None) -> str:
+    def generate_report(self, benchmark_results: Dict[str, Any], tradeoff_results: Optional[Dict[str, Any]] = None, output_format: str = "json", include_visualizations: bool = True) -> str:
         """生成基准测试报告。
 
         Args:
             benchmark_results: 基准测试结果
             tradeoff_results: 权衡分析结果（可选）
+            output_format: 输出格式（json/csv/markdown），默认json
+            include_visualizations: 是否生成可视化，默认True
 
         Returns:
             报告文件路径
@@ -247,32 +249,36 @@ class ReportGenerator:
         """
         # 验证输入数据
         self._validate_data(benchmark_results)
-        
         # 生成可视化图表
         chart_files = []
-        try:
-            chart_files = self._generate_visualizations(benchmark_results)
-        except Exception as e:
-            logger.warning(f"生成可视化图表失败: {str(e)}")
-        
+        if include_visualizations:
+            try:
+                chart_files = self._generate_visualizations(benchmark_results)
+            except Exception as e:
+                logger.warning(f"生成可视化图表失败: {str(e)}")
         # 生成报告文件
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.json")
-        
-        # 准备报告数据
-        report_data = {
-            "timestamp": timestamp,
-            "benchmark_results": benchmark_results,
-            "visualizations": chart_files
-        }
-        
-        if tradeoff_results:
-            report_data["tradeoff_results"] = tradeoff_results
-        
-        # 保存报告
-        with open(report_path, 'w', encoding='utf-8') as f:
-            json.dump(report_data, f, indent=4, ensure_ascii=False)
-        
+        if output_format == "json":
+            report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.json")
+            report_data = {
+                "timestamp": timestamp,
+                **benchmark_results,
+                "visualizations": chart_files
+            }
+            if tradeoff_results:
+                report_data["tradeoff_results"] = tradeoff_results
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(report_data, f, indent=4, ensure_ascii=False)
+        elif output_format == "csv":
+            report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.csv")
+            self._generate_csv_report(benchmark_results, report_path)
+        elif output_format == "markdown":
+            report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.md")
+            md_content = self._generate_markdown(benchmark_results)
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+        else:
+            raise ValueError("不支持的报告格式: " + output_format)
         logger.info(f"报告已生成: {report_path}")
         return report_path
     
@@ -397,33 +403,36 @@ class ReportGenerator:
                 if metric == "throughput" and val == 0:
                     raise ValueError(f"values中的第{i+1}个元素的throughput不能为0")
     
-    def _validate_metric_value(self, key: str, value: Union[Dict[str, Any], float]) -> None:
+    def _validate_metric_value(self, key: str, value: Union[Dict[str, Any], float, list]) -> None:
         """验证指标值的有效性。
 
         Args:
             key: 指标名称
-            value: 指标值，可以是字典或数值类型
+            value: 指标值，可以是字典、数值或列表类型
         """
         if isinstance(value, (int, float)):
             if value < 0:
                 raise ValueError(f"{key}指标值不能为负数")
             return
-            
+        if isinstance(value, list):
+            if not value:
+                return
+            for v in value:
+                if not isinstance(v, (int, float)):
+                    raise ValueError(f"{key}指标列表中的元素必须是数值类型")
+                if v < 0:
+                    raise ValueError(f"{key}指标列表中的元素不能为负数")
+            return
         if not isinstance(value, dict):
-            raise ValueError(f"{key}指标必须是字典类型或数值类型")
-            
+            raise ValueError(f"{key}指标必须是字典类型、数值类型或列表类型")
         if "value" not in value:
             raise ValueError(f"{key}指标字典必须包含value字段")
-            
         if not isinstance(value["value"], (int, float)):
             raise ValueError(f"{key}指标字典中的值必须是数值类型")
-            
         if value["value"] < 0:
             raise ValueError(f"{key}指标字典中的值不能为负数")
-            
         if "unit" not in value:
             raise ValueError(f"{key}指标字典必须包含unit字段")
-            
         if not isinstance(value["unit"], str):
             raise ValueError(f"{key}指标字典中的单位必须是字符串类型")
 
