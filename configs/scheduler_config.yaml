@@ -6,6 +6,7 @@ hardware_map:
   a800: nvidia_a800
 
 scheduler:
+  scheduler_type: token_based
   max_batch_size: 4
   max_queue_size: 100
   max_wait_time: 1.0
@@ -30,7 +31,6 @@ scheduler:
 
   # 任务分配策略
   allocation_strategy:
-    type: token_based
     parameters:
       min_tokens: 32
       max_tokens: 2048

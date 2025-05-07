@@ -5,10 +5,10 @@ import os
 import json
 import shutil
 from typing import Dict, Any, List, Optional
-from toolbox.logger import get_logger
-from .base_benchmarking import BaseBenchmarking
-from model_zoo.mock_model import MockModel
-from .report_generator import ReportGenerator
+from src.toolbox.logger import get_logger
+from src.model_zoo.mock_model import MockModel
+from src.benchmarking.base_benchmarking import BaseBenchmarking
+from src.benchmarking.report_generator import ReportGenerator
 
 logger = get_logger(__name__)
 

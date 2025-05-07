@@ -2,12 +2,12 @@
 """模型库模块。"""
 
 from typing import Dict, Type, Union, Any
-import logging
-from .base_model import BaseModel
-from .mock_model import MockModel
-from .tinyllama import TinyLlama
+from src.toolbox.logger import get_logger
+from src.model_zoo.base_model import BaseModel
+from src.model_zoo.mock_model import MockModel
+from src.model_zoo.tinyllama import TinyLlama
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # 注册所有可用的模型
 MODELS: Dict[str, Type[BaseModel]] = {

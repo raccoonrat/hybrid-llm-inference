@@ -2,7 +2,7 @@
 
 import os
 from typing import Dict, Any, List, Optional
-from toolbox.logger import get_logger
+from src.toolbox.logger import get_logger
 from src.model_zoo.tinyllama import TinyLlama
 from src.model_zoo.mistral import LocalMistral
 from src.scheduling.token_based_scheduler import TokenBasedScheduler

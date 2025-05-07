@@ -10,10 +10,10 @@ import shutil
 import torch
 import torch.nn as nn
 from .base_benchmarking import BaseBenchmarking
-from src.hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from src.model_zoo.tinyllama import TinyLlama
-from src.scheduling.token_based_scheduler import TokenBasedScheduler
-from src.scheduling.task_based_scheduler import TaskBasedScheduler
+from ..hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from ..model_zoo.tinyllama import TinyLlama
+from ..scheduling.token_based_scheduler import TokenBasedScheduler
+from ..scheduling.task_based_scheduler import TaskBasedScheduler
 import time
 import random
 from .report_generator import ReportGenerator
@@ -36,6 +36,7 @@ class SystemBenchmarking(BaseBenchmarking):
                 - model_config: 模型配置
                 - output_dir: 输出目录
                 - scheduler_config: 调度器配置（可选，默认为token_based）
+                - hardware_config: 硬件配置
         """
         # 添加默认的调度器配置
         if "scheduler_config" not in config:
@@ -47,6 +48,7 @@ class SystemBenchmarking(BaseBenchmarking):
         super().__init__(config)
         self.dataset_path = config["dataset_path"]
         self.model_config = config["model_config"]
+        self.hardware_config = config.get("hardware_config", {})
         self.output_dir = config["output_dir"]
         self.dataset = None  # 初始化 dataset 属性
         self.logger = get_logger(__name__)
@@ -134,17 +136,22 @@ class SystemBenchmarking(BaseBenchmarking):
     def _init_profiler(self) -> None:
         """初始化性能分析器。"""
         try:
-            # 获取设备类型和ID
-            device = self.hardware_config.get("device", "cpu")
-            device_id = self.hardware_config.get("device_id", 0)
-            
-            # 根据设备类型初始化分析器
-            if device.lower() == "cuda" and device_id == 0:
-                self.profiler = RTX4050Profiler()
-                logger.info("RTX4050性能分析器初始化成功")
-            else:
+            # 检查硬件配置中是否有设备信息
+            if "devices" not in self.hardware_config:
+                logger.warning("硬件配置中缺少devices字段，跳过性能分析器初始化")
                 self.profiler = None
-                logger.info(f"设备 {device}:{device_id} 不支持性能分析，跳过分析器初始化")
+                return
+                
+            # 遍历设备配置，找到RTX4050
+            for device_name, device_config in self.hardware_config["devices"].items():
+                if device_name == "rtx4050":
+                    self.profiler = RTX4050Profiler()
+                    logger.info("RTX4050性能分析器初始化成功")
+                    return
+                    
+            logger.info("未找到RTX4050设备，跳过性能分析器初始化")
+            self.profiler = None
+            
         except Exception as e:
             logger.error(f"性能分析器初始化失败: {str(e)}")
             self.profiler = None
@@ -470,6 +477,41 @@ class SystemBenchmarking(BaseBenchmarking):
             }
         except Exception as e:
             logger.error(f"基准测试执行失败: {str(e)}")
+            raise
+
+    def _create_model(self, state_dict):
+        """创建模型实例。
+
+        Args:
+            state_dict: 模型状态字典
+
+        Returns:
+            模型实例
+        """
+        try:
+            # 在测试模式下使用模拟模型
+            if os.getenv("TEST_MODE") == "1":
+                from ..model_zoo.mock_model import MockModel
+                return MockModel()
+            
+            # 根据模型类型创建对应的模型实例
+            model_type = self.config.get("model_name", "").lower()
+            if model_type == "tinyllama":
+                from ..model_zoo.tinyllama import TinyLlama
+                model = TinyLlama(self.config)
+            elif model_type == "mistral":
+                from ..model_zoo.mistral import Mistral
+                model = Mistral(self.config)
+            else:
+                raise ValueError(f"不支持的模型类型: {model_type}")
+            
+            # 加载模型状态
+            model.load_state_dict(state_dict)
+            logger.info(f"成功创建并加载模型: {model_type}")
+            return model
+            
+        except Exception as e:
+            logger.error(f"创建模型失败: {e}")
             raise
 
 class Linear(nn.Linear):

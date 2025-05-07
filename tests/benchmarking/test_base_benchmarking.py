@@ -30,7 +30,14 @@ def test_base_benchmarking_config_validation():
         "dataset_path": "/path/to/dataset",
         "batch_size": 32,
         "num_threads": 4,
-        "model_config": {},
+        "model_config": {
+            "models": {
+                "mock": {
+                    "model_type": "mock",
+                    "model_path": "mock_path"
+                }
+            }
+        },
         "hardware_config": {}
     }
     benchmarking = MockBenchmarking(valid_config)
@@ -46,8 +53,12 @@ def test_base_benchmarking_run():
         "device": "cpu",
         "metrics": ["latency", "energy", "throughput"],
         "model_config": {
-            "model_type": "mock",
-            "model_path": "mock_path"
+            "models": {
+                "mock": {
+                    "model_type": "mock",
+                    "model_path": "mock_path"
+                }
+            }
         },
         "hardware_config": {
             "device": "cpu",
@@ -70,8 +81,12 @@ def test_base_benchmarking_collect_metrics():
         "device": "cpu",
         "metrics": ["latency", "energy", "throughput"],
         "model_config": {
-            "model_type": "mock",
-            "model_path": "mock_path"
+            "models": {
+                "mock": {
+                    "model_type": "mock",
+                    "model_path": "mock_path"
+                }
+            }
         },
         "hardware_config": {
             "device": "cpu",
@@ -95,8 +110,12 @@ def test_base_benchmarking_validate_metrics():
         "device": "cpu",
         "metrics": ["latency", "energy", "throughput"],
         "model_config": {
-            "model_type": "mock",
-            "model_path": "mock_path"
+            "models": {
+                "mock": {
+                    "model_type": "mock",
+                    "model_path": "mock_path"
+                }
+            }
         },
         "hardware_config": {
             "device": "cpu",

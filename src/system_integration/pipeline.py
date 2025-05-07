@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, Union
 import pandas as pd
 
 from ..dataset_manager.alpaca_loader import AlpacaLoader
-from src.data_processing.token_processing import TokenProcessing
+from ..data_processing.token_processing import TokenProcessing
 from ..optimization_engine.threshold_optimizer import ThresholdOptimizer
 from ..optimization_engine.tradeoff_analyzer import TradeoffAnalyzer
 from ..scheduling.token_based_scheduler import TokenBasedScheduler
@@ -18,9 +18,9 @@ from ..scheduling.task_allocator import TaskAllocator
 from ..benchmarking.system_benchmarking import SystemBenchmarking
 from ..benchmarking.report_generator import ReportGenerator
 from ..toolbox.config_manager import ConfigManager
-from src.model_inference.hybrid_inference import HybridInference
-from src.hardware_profiling import get_profiler
-from src.model_zoo.base_model import BaseModel
+from ..model_inference.hybrid_inference import HybridInference
+from ..hardware_profiling import get_profiler
+from ..model_zoo.base_model import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

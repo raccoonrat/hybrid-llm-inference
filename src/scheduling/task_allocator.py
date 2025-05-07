@@ -1,15 +1,14 @@
 # hybrid-llm-inference/src/scheduling/task_allocator.py
 from toolbox.logger import get_logger
-from src.hardware_profiling import get_profiler
-from model_zoo import get_model
+from ..hardware_profiling import get_profiler
+from ..model_zoo.base_model import BaseModel
 from typing import Dict, Any, List, Optional
 import numpy as np
 import logging
 from pathlib import Path
-from src.model_zoo.base_model import BaseModel
 import os
-from src.scheduling.token_based_scheduler import TokenBasedScheduler
-from src.scheduling.base_allocator import BaseAllocator
+from .token_based_scheduler import TokenBasedScheduler
+from .base_allocator import BaseAllocator
 import yaml
 
 logging.basicConfig(level=logging.INFO)
@@ -132,6 +131,7 @@ class TaskAllocator(BaseAllocator):
         
         # 验证硬件配置
         for hardware_name, hardware_info in self.hardware_config.items():
+            
             if not isinstance(hardware_info, dict):
                 raise ValueError(f"硬件 {hardware_name} 的配置必须是字典")
             

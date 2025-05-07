@@ -125,8 +125,10 @@ class ConfigManager:
         }
         
         for device_name, device_config in config["devices"].items():
+            print(f"DEBUG: device_name={device_name}, type={type(device_config)}, device_config={device_config}")
+            # 跳过非字典类型的设备配置
             if not isinstance(device_config, dict):
-                raise ValueError(f"设备配置必须是字典类型: {device_name}")
+                continue
             
             missing_fields = required_fields - set(device_config.keys())
             if missing_fields:
