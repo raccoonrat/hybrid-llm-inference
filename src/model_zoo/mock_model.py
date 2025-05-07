@@ -24,26 +24,30 @@ class MockModel(BaseModel):
         Args:
             config: 配置字典
         """
-        self.config = config
-        self.hidden_size = config.get("hidden_size", 2048)
-        self.intermediate_size = config.get("intermediate_size", 5632)
-        
-        # 创建一个简单的线性层，使用配置中的维度
-        self.linear = nn.Linear(self.hidden_size, self.hidden_size)
-        
-        # 初始化权重
-        with torch.no_grad():
-            self.linear.weight.fill_(0.1)
-            if self.linear.bias is not None:
-                self.linear.bias.fill_(0.0)
-        
-        self.logger = logging.getLogger(__name__)
-        self.model_path = None
-        self.device = "cuda"
-        self.response_text = "这是一个模拟的响应。"
-        self.token_multiplier = 1.5  # 用于模拟token计数
-        
-        super().__init__(config)
+        if os.getenv('TEST_MODE') == '1':
+            self.config = config
+            self.hidden_size = config.get("hidden_size", 2048)
+            self.intermediate_size = config.get("intermediate_size", 5632)
+            
+            # 创建一个简单的线性层，使用配置中的维度
+            self.linear = nn.Linear(self.hidden_size, self.hidden_size)
+            
+            # 初始化权重
+            with torch.no_grad():
+                self.linear.weight.fill_(0.1)
+                if self.linear.bias is not None:
+                    self.linear.bias.fill_(0.0)
+            
+            self.logger = logging.getLogger(__name__)
+            self.model_path = config.get("model_path", "")
+            self.device = config.get("device", "cuda")
+            self.response_text = "这是一个模拟的响应。"
+            self.token_multiplier = 1.5  # 用于模拟token计数
+            self.model = None
+            self.tokenizer = None
+            self.logger.info("测试模式：使用模拟模型")
+        else:
+            super().__init__(config)
 
     def _load_model(self) -> None:
         """加载模型。在测试模式下，这个方法只是一个空实现。"""

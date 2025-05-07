@@ -77,8 +77,15 @@ class ReportGenerator:
             elif isinstance(throughput, list):
                 if not all(isinstance(x, (int, float)) and x > 0 for x in throughput):
                     raise ValueError("throughput 列表中的所有值必须是正数")
+            elif isinstance(throughput, dict):
+                if "value" not in throughput:
+                    raise ValueError("throughput 字典必须包含 value 字段")
+                if not isinstance(throughput["value"], (int, float)):
+                    raise ValueError("throughput 字典中的 value 必须是数值类型")
+                if throughput["value"] <= 0:
+                    raise ValueError("throughput 字典中的 value 必须是正数")
             else:
-                raise ValueError("throughput 必须是数字或数字列表")
+                raise ValueError("throughput 必须是数字、数字列表或包含 value 字段的字典")
 
     def _generate_visualizations(self, data: Dict[str, Any], include_tradeoff: bool = True) -> List[str]:
         """生成基准测试结果的可视化图表。
@@ -390,34 +397,35 @@ class ReportGenerator:
                 if metric == "throughput" and val == 0:
                     raise ValueError(f"values中的第{i+1}个元素的throughput不能为0")
     
-    def _validate_metric_value(self, key: str, value: Union[float, List[float], Dict[str, float]]) -> None:
+    def _validate_metric_value(self, key: str, value: Union[Dict[str, Any], float]) -> None:
         """验证指标值的有效性。
 
         Args:
             key: 指标名称
-            value: 要验证的指标值
-
-        Raises:
-            ValueError: 当指标值无效时抛出
+            value: 指标值，可以是字典或数值类型
         """
-        if isinstance(value, (float, int)):
+        if isinstance(value, (int, float)):
             if value < 0:
                 raise ValueError(f"{key}指标值不能为负数")
-        elif isinstance(value, list):
-            if not value:
-                raise ValueError(f"{key}指标列表不能为空")
-            if any(v < 0 for v in value):
-                raise ValueError(f"{key}指标列表中不能包含负数")
-        elif isinstance(value, dict):
-            if not value:
-                raise ValueError(f"{key}指标字典不能为空")
-            for k, v in value.items():
-                if not isinstance(v, (float, int)):
-                    raise ValueError(f"{key}指标字典中的值必须是数值类型")
-                if v < 0:
-                    raise ValueError(f"{key}指标字典中不能包含负数")
-        else:
-            raise ValueError(f"{key}指标值类型必须是数值、列表或字典")
+            return
+            
+        if not isinstance(value, dict):
+            raise ValueError(f"{key}指标必须是字典类型或数值类型")
+            
+        if "value" not in value:
+            raise ValueError(f"{key}指标字典必须包含value字段")
+            
+        if not isinstance(value["value"], (int, float)):
+            raise ValueError(f"{key}指标字典中的值必须是数值类型")
+            
+        if value["value"] < 0:
+            raise ValueError(f"{key}指标字典中的值不能为负数")
+            
+        if "unit" not in value:
+            raise ValueError(f"{key}指标字典必须包含unit字段")
+            
+        if not isinstance(value["unit"], str):
+            raise ValueError(f"{key}指标字典中的单位必须是字符串类型")
 
     def validate_metrics(self, metrics):
         """验证指标数据的格式。
