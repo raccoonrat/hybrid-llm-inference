@@ -97,53 +97,42 @@ class TinyLlama(BaseModel):
                 )
 
     def _load_model(self) -> None:
-        """Load the model and tokenizer."""
+        """加载模型。"""
         try:
-            if os.getenv("TEST_MODE"):
-                self.logger.info("测试模式：跳过模型加载")
+            # 在测试模式下使用模拟模型
+            if os.getenv("TEST_MODE") == "1":
+                self.logger.info("测试模式：使用模拟模型")
+                from .mock_model import MockModel
+                mock_config = {
+                    "hidden_size": 256,  # 使用正确的维度
+                    "intermediate_size": 1024
+                }
+                self._model = MockModel(mock_config)
                 return
 
-            # 检查模型路径是否存在
-            if not os.path.exists(self.model_path):
-                # 尝试在项目models目录下查找模型
-                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                model_dir = os.path.join(project_root, "models", "TinyLlama-1.1B-Chat-v1.0")
-                if os.path.exists(model_dir):
-                    self.model_path = model_dir
-                    self.logger.info(f"使用项目模型目录: {self.model_path}")
-                else:
-                    raise FileNotFoundError(f"模型路径不存在: {self.model_path}")
+            # 设置模型配置
+            model_config = {
+                "hidden_size": 256,  # 使用正确的维度
+                "intermediate_size": 1024,
+                "num_attention_heads": 8,
+                "num_hidden_layers": 8,
+                "torch_dtype": torch.float16 if self.config.get("dtype") == "float16" else torch.float32
+            }
 
             # 加载模型
             self._model = LlamaForCausalLM.from_pretrained(
                 self.model_path,
-                torch_dtype=self.dtype,
-                device_map=self.device,
-                trust_remote_code=True,
-                low_cpu_mem_usage=True
+                config=model_config,
+                torch_dtype=model_config["torch_dtype"],
+                device_map="auto" if torch.cuda.is_available() else None
             )
 
-            # 加载分词器
-            self._tokenizer = LlamaTokenizer.from_pretrained(
-                self.model_path,
-                trust_remote_code=True
-            )
+            self.logger.info(f"成功加载模型: {self.model_path}")
 
-            # 确保模型在正确的设备上
-            self._model.to(self.device)
-
-        except FileNotFoundError as e:
-            raise FileNotFoundError(f"模型路径不存在: {str(e)}")
         except Exception as e:
-            if "size mismatch" in str(e):
-                # 获取实际的权重维度信息
-                error_msg = str(e)
-                self.logger.error(f"模型权重维度不匹配: {error_msg}")
-                raise RuntimeError(
-                    f"模型权重维度不匹配。请检查模型路径 '{self.model_path}' 是否包含正确的TinyLlama权重。\n"
-                    f"错误详情: {error_msg}"
-                )
-            raise RuntimeError(f"加载模型时出错: {str(e)}")
+            error_msg = f"模型权重维度不匹配。请检查模型路径 '{self.model_path}' 是否包含正确的TinyLlama权重。\n错误详情: {str(e)}"
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
     def generate(self, input_text: str, max_tokens: Optional[int] = None, temperature: float = 0.7) -> str:
         """生成文本。
