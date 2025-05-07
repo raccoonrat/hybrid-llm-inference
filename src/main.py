@@ -212,6 +212,10 @@ def main():
         generator = ReportGenerator(output_dir="data/benchmarking")
         generator.generate_report(benchmark_results, tradeoff_results)
         logger.info("Generated benchmark report and visualizations")
+
+        # 额外生成 markdown 格式的完整报告
+        generator.generate_report(benchmark_results, tradeoff_results, output_format="markdown")
+        logger.info("Generated markdown benchmark report")
         
 
         
