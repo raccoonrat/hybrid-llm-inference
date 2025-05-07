@@ -510,7 +510,17 @@ class SystemBenchmarking(BaseBenchmarking):
             # 在测试模式下使用模拟模型
             if os.getenv("TEST_MODE") == "1":
                 from ..model_zoo.mock_model import MockModel
-                return MockModel()
+                # 创建一个与TinyLlama配置匹配的MockModel
+                mock_config = {
+                    "model_path": self.config.get("model_path", ""),
+                    "device": self.config.get("device", "cpu"),
+                    "dtype": self.config.get("dtype", "float32"),
+                    "batch_size": self.config.get("batch_size", 1),
+                    "max_length": self.config.get("max_length", 2048),
+                    "hidden_size": 2048,  # 与TinyLlama配置匹配
+                    "intermediate_size": 5632  # 与TinyLlama配置匹配
+                }
+                return MockModel(mock_config)
             
             # 获取模型类型并转换为小写
             model_type = self.config.get("model_name", "").lower()
