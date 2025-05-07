@@ -3,201 +3,166 @@
 """
 
 from typing import Dict, Any, List, Optional
-from .base_model import BaseModel
-from toolbox.logger import get_logger
-import logging
 import torch
-import os
+import torch.nn as nn
+from toolbox.logger import get_logger
 
 logger = get_logger(__name__)
 
-class MockModel(BaseModel):
+class MockModel(nn.Module):
     """
     模拟模型类，用于测试目的。
     """
     
-    def __init__(self, model_path: str, device: str = "cuda"):
+    def __init__(self, config: Dict[str, Any]) -> None:
         """
         初始化模拟模型。
 
         Args:
-            model_path: 模型路径
-            device: 设备类型
+            config: 配置字典
         """
-        self.logger = logging.getLogger(__name__)
-        self.model_path = model_path
-        self.device = device
-        self.response_text = "这是一个模拟的响应。"
-        self.token_multiplier = 1.5  # 用于模拟token计数
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.get("hidden_size", 2048)
+        self.intermediate_size = config.get("intermediate_size", 5632)
+        self.device = config.get("device", "cuda")
+        self.dtype = config.get("dtype", torch.float32)
+        self.batch_size = config.get("batch_size", 1)
+        self.max_length = config.get("max_length", 2048)
         
-        if not model_path or not isinstance(model_path, str):
-            raise ValueError("模型路径必须是非空字符串")
-
-        if os.getenv('TEST_MODE') == '1':
-            self.logger.info("测试模式：跳过模型加载")
-            self.model = None
-            self.tokenizer = None
-            return
-
-        try:
-            # 在测试模式下不加载实际模型
-            self.model = None
-            self.tokenizer = None
-            self.logger.info("模拟模型初始化完成")
-        except Exception as e:
-            self.logger.error(f"模型初始化失败：{str(e)}")
-            raise
-
-    def _validate_base_config(self) -> None:
-        """验证基础配置。"""
-        logger.debug("验证基础配置")
-        pass
-
-    def _validate_config(self) -> None:
-        """验证配置。"""
-        logger.debug("验证配置")
-        pass
-
-    def _init_model(self) -> None:
-        """初始化模型。"""
-        logger.debug("初始化模型")
-        pass
-
-    def inference(self, input_text: str, max_tokens: Optional[int] = None) -> str:
-        """执行推理。
+        # 创建一个简单的线性层作为模拟
+        self.linear = nn.Linear(256, self.hidden_size)
+        
+        # 创建模拟的tokenizer
+        self.tokenizer = MockTokenizer()
+        
+        logger.info("MockModel 初始化完成")
+        
+    def to(self, device: str) -> 'MockModel':
+        """
+        将模型移动到指定设备。
 
         Args:
-            input_text: 输入文本
-            max_tokens: 最大生成令牌数
+            device: 目标设备
 
         Returns:
-            生成的文本
+            移动后的模型
         """
-        logger.debug(f"执行推理，输入文本: {input_text}, 最大令牌数: {max_tokens}")
-        return self.response_text
-
-    def cleanup(self) -> None:
-        """清理资源。"""
-        logger.debug("清理资源")
-        pass
-
-    def _do_inference(self, text: str) -> str:
+        self.device = device
+        self.linear = self.linear.to(device)
+        return self
+        
+    def eval(self) -> 'MockModel':
         """
-        执行模拟推理。
-
-        Args:
-            text: 输入文本
+        将模型设置为评估模式。
 
         Returns:
-            str: 模拟的响应文本
+            模型实例
         """
-        logger.debug(f"执行模拟推理，输入文本长度: {len(text)}")
-        return self.response_text
-
-    def infer(self, text: str) -> str:
-        """
-        执行推理。
-
-        Args:
-            text: 输入文本
-
-        Returns:
-            str: 推理结果
-        """
-        if not text:
-            logger.warning("输入文本为空")
-            return ""
-        return self._do_inference(text)
-
-    def get_token_count(self, text: str) -> int:
-        """
-        获取文本的模拟token数量。
-
-        Args:
-            text: 输入文本
-
-        Returns:
-            int: 模拟的token数量
-        """
-        if not text:
-            logger.warning("输入文本为空")
-            return 0
-        token_count = int(len(text) * self.token_multiplier)
-        logger.debug(f"计算token数量: {token_count}")
-        return token_count
-
+        self.linear.eval()
+        return self
+        
     def generate(self, input_text: str, **kwargs) -> str:
-        """生成文本。
+        """
+        生成响应文本。
 
         Args:
             input_text: 输入文本
             **kwargs: 其他参数
 
         Returns:
-            str: 生成的文本
+            生成的响应文本
         """
-        return f"模拟输出: {input_text}"
-
-    def save(self, path: str) -> None:
-        """保存模型。
+        return f"测试模式响应: {input_text}"
+        
+    def get_token_count(self, text: str) -> int:
+        """
+        获取文本的token数量。
 
         Args:
-            path: 保存路径
-        """
-        # 创建一个空的状态字典
-        state_dict = {}
-        torch.save(state_dict, path)
-
-    @classmethod
-    def load(cls, path: str) -> "MockModel":
-        """加载模型。
-
-        Args:
-            path: 模型路径
+            text: 输入文本
 
         Returns:
-            加载的模型
+            token数量
         """
-        model = cls(path)
-        return model
+        return len(text.split())
+        
+    def forward(self, input_ids=None, attention_mask=None, **kwargs):
+        """
+        前向传播。
 
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """加载模型状态。
+        Args:
+            input_ids: 输入ID
+            attention_mask: 注意力掩码
+            **kwargs: 其他参数
+
+        Returns:
+            模型输出
+        """
+        batch_size = input_ids.shape[0] if isinstance(input_ids, torch.Tensor) else 1
+        seq_len = input_ids.shape[1] if isinstance(input_ids, torch.Tensor) else 3
+        return torch.ones((batch_size, seq_len, 256), device=self.device)
+
+    def state_dict(self) -> Dict[str, torch.Tensor]:
+        """
+        获取模型状态字典。
+
+        Returns:
+            状态字典
+        """
+        return {
+            'linear.weight': torch.ones((256, self.hidden_size)),
+            'linear.bias': torch.zeros(self.hidden_size)
+        }
+
+    def load_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        """
+        加载模型状态字典。在测试模式下，我们不需要实际加载权重。
 
         Args:
             state_dict: 模型状态字典
         """
-        pass
+        logger.info("测试模式：跳过加载状态字典")
+        return
 
-    def state_dict(self) -> Dict[str, Any]:
-        """获取模型状态。
-
-        Returns:
-            Dict[str, Any]: 模型状态字典
-        """
-        return {}
-
-    def to(self, device: str) -> 'MockModel':
-        """将模型移动到指定设备。
-
-        Args:
-            device: 目标设备
-
-        Returns:
-            移动后的模型实例
-        """
-        self.device = device
-        return self
-
-    def eval(self):
-        """设置模型为评估模式。"""
-        pass
-
-    def save_pretrained(self, save_directory: str) -> None:
-        """保存模型。
+class MockTokenizer:
+    """
+    模拟的分词器类。
+    """
+    def __init__(self):
+        self.pad_token_id = 0
+        self.eos_token_id = 1
+        self.bos_token_id = 2
+        self.unk_token_id = 3
         
-        Args:
-            save_directory: 保存目录
+    def encode(self, text: str, **kwargs) -> List[int]:
+        """模拟编码过程"""
+        return [1, 2, 3]  # 返回固定的token序列
+        
+    def decode(self, tokens: List[int], skip_special_tokens: bool = True, **kwargs) -> str:
+        """模拟解码过程"""
+        return "这是测试模式的解码结果。"
+        
+    def __call__(self, text: str, return_tensors: str = "pt", **kwargs) -> Dict[str, torch.Tensor]:
         """
-        os.makedirs(save_directory, exist_ok=True)
-        self.logger.info(f"模型已保存到 {save_directory}") 
+        处理分词器调用。
+
+        Args:
+            text: 输入文本
+            return_tensors: 返回张量的类型
+            **kwargs: 其他参数
+
+        Returns:
+            分词结果字典
+        """
+        if isinstance(text, str):
+            return {
+                "input_ids": torch.tensor([[1, 2, 3]]),
+                "attention_mask": torch.tensor([[1, 1, 1]])
+            }
+        else:
+            batch_size = len(text)
+            return {
+                "input_ids": torch.tensor([[1, 2, 3]] * batch_size),
+                "attention_mask": torch.tensor([[1, 1, 1]] * batch_size)
+            } 

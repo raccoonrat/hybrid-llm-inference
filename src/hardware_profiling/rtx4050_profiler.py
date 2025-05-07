@@ -22,28 +22,33 @@ def _get_nvml_library_path() -> str:
         # Windows 平台，固定路径为 c:\windows\system32\nvml.dll
         nvml_path = "c:\\windows\\system32\\nvml.dll"
     else:
-        # Linux 平台，在 /usr/local/cuda-12.8 下查找
-        cuda_base = "/usr/local/cuda-12.8"
-        cuda_lib_paths = [
-            os.path.join(cuda_base, "lib64"),
-            os.path.join(cuda_base, "lib"),
-            os.path.join(cuda_base, "targets/x86_64-linux/lib/stus"),
-            "/usr/lib64",
-            "/usr/lib"
+        # Linux 平台，搜索多个可能的路径
+        possible_paths = [
+            "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1",  # Ubuntu/Debian
+            "/usr/lib64/libnvidia-ml.so.1",                 # RHEL/CentOS
+            "/usr/lib/libnvidia-ml.so.1",                   # 其他Linux
         ]
         
+        # 如果设置了CUDA_HOME环境变量，也搜索CUDA目录
+        cuda_home = os.getenv("CUDA_HOME")
+        if cuda_home:
+            possible_paths.extend([
+                os.path.join(cuda_home, "lib64/libnvidia-ml.so.1"),
+                os.path.join(cuda_home, "lib/libnvidia-ml.so.1")
+            ])
+        
+        # 搜索路径
         nvml_path = None
-        for path in cuda_lib_paths:
-            test_path = os.path.join(path, "libnvidia-ml.so")
-            if os.path.exists(test_path):
-                nvml_path = test_path
+        for path in possible_paths:
+            if os.path.exists(path):
+                nvml_path = path
                 break
         
         if not nvml_path:
-            raise RuntimeError(f"无法在 {cuda_base} 及系统库目录下找到 NVML 库，请确保已安装 NVIDIA 驱动和 CUDA")
+            raise RuntimeError("无法找到NVML库，请确保已安装NVIDIA驱动")
     
     if not os.path.exists(nvml_path):
-        raise RuntimeError(f"NVML 库不存在: {nvml_path}")
+        raise RuntimeError(f"NVML库不存在: {nvml_path}")
     
     return nvml_path
 
@@ -146,24 +151,24 @@ class RTX4050Profiler(HardwareProfiler):
     def _init_nvml(self) -> None:
         """初始化 NVML。"""
         try:
+            # 新增 device_id 类型检查
+            if not isinstance(self.device_id, int):
+                raise ValueError("device_id 必须为整数")
             if not torch.cuda.is_available():
                 logger.warning("CUDA 不可用，使用 CPU 模式")
                 self.device = torch.device("cpu")
                 self.initialized = True
                 return
-                
             if self.device_id >= torch.cuda.device_count():
                 logger.warning(f"设备 ID {self.device_id} 无效，使用 CPU 模式")
                 self.device = torch.device("cpu")
                 self.initialized = True
                 return
-                
             # 初始化 NVML
             try:
                 pynvml.nvmlInit()
                 self.nvml_initialized = True
                 self.handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_id)
-                
                 # 验证设备类型
                 device_name = pynvml.nvmlDeviceGetName(self.handle)
                 if isinstance(device_name, bytes):
@@ -173,13 +178,12 @@ class RTX4050Profiler(HardwareProfiler):
             except (pynvml.NVMLError_LibraryNotFound, FileNotFoundError) as e:
                 logger.warning(f"NVML 库不可用: {str(e)}，使用 CPU 模式")
                 self.nvml_initialized = False
-                
             self.device = torch.device(f"cuda:{self.device_id}")
             self.initialized = True
             logger.info(f"RTX 4050 性能分析器初始化完成，设备 ID: {self.device_id}")
         except Exception as e:
             logger.error(f"RTX 4050 性能分析器初始化失败: {str(e)}")
-            self.cleanup()
+            # 不再调用 self.cleanup()，直接原样抛出异常
             raise
 
     def measure_power(self) -> float:

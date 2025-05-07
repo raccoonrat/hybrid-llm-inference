@@ -4,39 +4,56 @@ models:
     model_name: meta-llama/Llama-3.2-3B
     model_path: "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\Llama-3.2-3B"
     mode: local
-    max_length: 512
+    tokenizer: auto
+    max_length: 2048
+    batch_size: 1
+    device: cuda
+    dtype: float16
+    cache_dir: data/models
+    trust_remote_code: true
     mixed_precision: fp16
     device_placement: true
-    batch_size: 1
+    search_range: [16, 100]
   falcon:
     model_name: tiiuae/falcon-7b
     model_path: "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\falcon-7b"
-    mode: local
-    max_length: 512
-    mixed_precision: fp16
-    device_placement: true
-    batch_size: 1
-  mistral:
-    model_name: mistralai/Mixtral-7B-v0.1
-    model_path: "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\mixtral-7b"
-    mode: local
-    max_length: 512
-    mixed_precision: fp16
-    device_placement: true
-    batch_size: 1
-  tinyllama:
-    model_name: TinyLlama-1.1B-Chat-v1.0
-    type: local
-    model_path: "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\TinyLlama-1.1B-Chat-v1.0"
     mode: local
     tokenizer: auto
     max_length: 2048
     batch_size: 1
     device: cuda
     dtype: float16
-    precision: float16
-    quantization: none
     cache_dir: data/models
     trust_remote_code: true
     mixed_precision: fp16
     device_placement: true
+    search_range: [16, 100]
+  mistral:
+    model_name: mistralai/Mixtral-7B-v0.1
+    model_path: "\\\\wsl.localhost\\Ubuntu-24.04\\home\\mpcblock\\models\\mixtral-7b"
+    mode: local
+    tokenizer: auto
+    max_length: 2048
+    batch_size: 1
+    device: cuda
+    dtype: float16
+    cache_dir: data/models
+    trust_remote_code: true
+    mixed_precision: fp16
+    device_placement: true
+    search_range: [16, 100]
+  TinyLlama-1.1B-Chat-v1.0:
+    model_name: TinyLlama-1.1B-Chat-v1.0
+    type: local
+    model_path: "D:\\models\\TinyLlama-1.1B-Chat-v1.0"
+    mode: local
+    tokenizer: auto
+    max_length: 2048
+    batch_size: 1
+    device: cuda
+    dtype: float16
+    cache_dir: data/models
+    trust_remote_code: true
+    mixed_precision: fp16
+    device_placement: true
+    search_range: [16, 100]

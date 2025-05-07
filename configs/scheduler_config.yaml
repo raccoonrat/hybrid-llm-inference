@@ -1,11 +1,12 @@
 # hybrid-llm-inference/configs/scheduler_config.yaml
 hardware_map:
-  m1_pro: apple_m1_pro
-  a100: nvidia_a100
-  rtx4050: nvidia_rtx4050
-  a800: nvidia_a800
+  m1_pro: m1_pro
+  a100: a100
+  rtx4050: rtx4050
+  a800: a800
 
 scheduler:
+  scheduler_type: token_based
   max_batch_size: 4
   max_queue_size: 100
   max_wait_time: 1.0
@@ -30,7 +31,6 @@ scheduler:
 
   # 任务分配策略
   allocation_strategy:
-    type: token_based
     parameters:
       min_tokens: 32
       max_tokens: 2048

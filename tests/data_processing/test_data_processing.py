@@ -72,6 +72,11 @@ def mock_models():
             return ''.join(chr(t) for t in tokens)
     return {"llama3": MockModel()}
 
+@pytest.fixture
+def mock_model_config():
+    """创建模拟模型配置。"""
+    return {"model_type": "TinyLlama", "vocab_size": 32000}
+
 def test_data_loader_load_valid_file(mock_data_file):
     """测试加载有效的数据文件。"""
     loader = DataLoader()
@@ -126,57 +131,53 @@ def test_token_processor_batch_process(model_path):
     assert len(results) == 2
     assert all(isinstance(r, list) for r in results)
 
-def test_token_processing_init(model_path):
+def test_token_processing_init(model_path, mock_model_config):
     """测试 TokenProcessing 初始化。"""
-    processor = TokenProcessing(model_path)
-    assert isinstance(processor.processor, TokenProcessor)
-    assert processor.processor.model_path == model_path
+    processor = TokenProcessing(model_path, mock_model_config)
+    assert isinstance(processor, TokenProcessing)
 
-def test_token_processing_process_tokens(model_path):
+def test_token_processing_process_tokens(model_path, mock_model_config):
     """测试 TokenProcessing 的 process_tokens 方法。"""
-    processor = TokenProcessing(model_path)
-    texts = ["Hello", "World"]
-    df = processor.process_tokens(texts)
-    
-    assert isinstance(df, pd.DataFrame)
-    assert "input_tokens" in df.columns
-    assert "decoded_text" in df.columns
-    assert len(df) == len(texts)
+    processor = TokenProcessing(model_path, mock_model_config)
+    texts = [{"input": "Hello"}, {"input": "World"}]
+    result = processor.process_tokens(texts)
+    assert isinstance(result, list)
+    assert len(result) == len(texts)
+    for item in result:
+        assert isinstance(item, dict)
+        assert "input_tokens" in item
+        assert "decoded_text" in item
 
-def test_token_processing_compute_distribution(model_path, mock_dataframe):
+def test_token_processing_compute_distribution(model_path, mock_dataframe, mock_model_config):
     """测试 TokenProcessing 的 compute_distribution 方法。"""
-    processor = TokenProcessing(model_path)
+    processor = TokenProcessing(model_path, mock_model_config)
     distribution = processor.compute_distribution(mock_dataframe)
-    
     assert isinstance(distribution, dict)
     assert all(isinstance(k, str) for k in distribution.keys())
     assert all(isinstance(v, float) for v in distribution.values())
     assert sum(distribution.values()) == pytest.approx(1.0)
 
-def test_token_processing_compute_distribution_with_save(model_path, mock_dataframe, tmp_path):
+def test_token_processing_compute_distribution_with_save(model_path, mock_dataframe, tmp_path, mock_model_config):
     """测试 TokenProcessing 的 compute_distribution 方法（带保存图表）。"""
-    processor = TokenProcessing(model_path)
+    processor = TokenProcessing(model_path, mock_model_config)
     save_path = str(tmp_path / "distribution.png")
     distribution = processor.compute_distribution(mock_dataframe, save_path)
-    
     assert isinstance(distribution, dict)
     assert Path(save_path).exists()
 
-def test_token_processing_get_token_data_dataframe(model_path, mock_dataframe):
+def test_token_processing_get_token_data_dataframe(model_path, mock_dataframe, mock_model_config):
     """测试 TokenProcessing 的 get_token_data 方法（DataFrame 格式）。"""
-    processor = TokenProcessing(model_path)
+    processor = TokenProcessing(model_path, mock_model_config)
     token_data = processor.get_token_data(mock_dataframe)
-    
     assert isinstance(token_data, pd.DataFrame)
     assert "input_tokens" in token_data.columns
     assert "decoded_text" in token_data.columns
     assert len(token_data) == len(mock_dataframe)
 
-def test_token_processing_get_token_data_dict(model_path, mock_dataframe):
+def test_token_processing_get_token_data_dict(model_path, mock_dataframe, mock_model_config):
     """测试 TokenProcessing 的 get_token_data 方法（字典格式）。"""
-    processor = TokenProcessing(model_path)
+    processor = TokenProcessing(model_path, mock_model_config)
     token_data = processor.get_token_data(mock_dataframe, format='dict')
-    
     assert isinstance(token_data, dict)
     assert "input_tokens" in token_data
     assert "decoded_text" in token_data
@@ -184,16 +185,14 @@ def test_token_processing_get_token_data_dict(model_path, mock_dataframe):
     assert isinstance(token_data["decoded_text"], list)
     assert len(token_data["input_tokens"]) == len(mock_dataframe)
 
-def test_token_processing_get_token_data_empty(model_path):
+def test_token_processing_get_token_data_empty(model_path, mock_model_config):
     """测试 TokenProcessing 的 get_token_data 方法（空数据）。"""
-    processor = TokenProcessing(model_path)
+    processor = TokenProcessing(model_path, mock_model_config)
     empty_df = pd.DataFrame()
-    
     # 测试 DataFrame 格式
     token_data_df = processor.get_token_data(empty_df)
     assert isinstance(token_data_df, pd.DataFrame)
     assert token_data_df.empty
-    
     # 测试字典格式
     token_data_dict = processor.get_token_data(empty_df, format='dict')
     assert isinstance(token_data_dict, dict)

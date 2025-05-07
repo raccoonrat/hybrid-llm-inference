@@ -208,3 +208,16 @@ models/
 *.ggjt.onnx
 *.ggjt.pb
 *.ggjt.tflite
+
+# Configuration files
+configs/
+**/configs/
+*.yaml
+*.yml
+*.json
+!requirements*.json
+!package*.json
+!tsconfig*.json
+!test_*.json
+!example_*.json
+!sample_*.json

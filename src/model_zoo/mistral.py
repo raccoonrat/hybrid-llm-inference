@@ -1,9 +1,9 @@
 # hybrid-llm-inference/src/model_zoo/mistral.py
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import requests
-from model_zoo.base_model import BaseModel
-from toolbox.logger import get_logger
-from toolbox.accelerate_wrapper import AccelerateWrapper
+from src.model_zoo.base_model import BaseModel
+from src.toolbox.logger import get_logger
+from src.toolbox.accelerate_wrapper import AccelerateWrapper
 import os
 import torch
 from typing import Dict, Any, Optional, List, Generator

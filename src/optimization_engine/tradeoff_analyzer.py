@@ -4,9 +4,9 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from toolbox.logger import get_logger
-from .cost_function import CostFunction
-from model_zoo import get_model
+from src.toolbox.logger import get_logger
+from src.optimization_engine.cost_function import CostFunction
+from src.model_zoo import get_model
 
 class TradeoffAnalyzer:
     def __init__(self, token_distribution_path, hardware_config, model_config, output_dir="data/processed"):

@@ -2,8 +2,8 @@ from typing import List, Dict, Any, Callable
 import numpy as np
 import torch
 import math
-from src.scheduling.task_allocator import TaskAllocator
-from src.scheduling.base_scheduler import BaseScheduler
+from .task_allocator import TaskAllocator
+from .base_scheduler import BaseScheduler
 
 class TaskBasedScheduler(BaseScheduler):
     """任务调度器，负责管理和分配任务"""

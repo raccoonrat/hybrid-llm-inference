@@ -98,8 +98,10 @@ class TokenProcessing:
                 self.tokenizer = MockTokenizer()
                 return
 
-            # 构建本地模型路径
-            model_path = os.path.join("models", self.model_name)
+            # 构建本地模型路径，优先使用model_config['model_path']
+            model_path = self.model_config.get("model_path")
+            if not model_path:
+                model_path = os.path.join("models", self.model_name)
             if not os.path.exists(model_path):
                 raise RuntimeError(f"模型目录不存在: {model_path}")
 
@@ -199,6 +201,12 @@ class TokenProcessing:
             # 检查数据类型
             for col in df.columns:
                 if col in required_columns:
+                    # 自动兼容tensor/numpy类型
+                    def tolist_if_needed(x):
+                        if hasattr(x, 'tolist'):
+                            return x.tolist()
+                        return x
+                    df[col] = df[col].apply(tolist_if_needed)
                     if not all(isinstance(x, (list, str)) or pd.isna(x) for x in df[col]):
                         raise TypeError(f"列 {col} 包含无效的数据类型")
             
@@ -265,7 +273,7 @@ class TokenProcessing:
             return {}
 
         # 如果提供了保存路径，先进行验证
-        if save_path:
+        if save_path is not None:
             # 基本路径验证
             if not save_path or not isinstance(save_path, str) or save_path.isspace():
                 raise ValueError("保存路径不能为空")
@@ -418,8 +426,8 @@ class TokenProcessing:
             ValueError: 当路径无效或没有写入权限时
         """
         # 基本路径验证
-        if save_path is None:
-            raise ValueError("保存路径不能为None")
+        if save_path is None or (isinstance(save_path, str) and not save_path.strip()):
+            raise ValueError("保存路径不能为空")
 
         # 规范化路径
         if isinstance(save_path, str):

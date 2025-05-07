@@ -77,8 +77,15 @@ class ReportGenerator:
             elif isinstance(throughput, list):
                 if not all(isinstance(x, (int, float)) and x > 0 for x in throughput):
                     raise ValueError("throughput 列表中的所有值必须是正数")
+            elif isinstance(throughput, dict):
+                if "value" not in throughput:
+                    raise ValueError("throughput 字典必须包含 value 字段")
+                if not isinstance(throughput["value"], (int, float)):
+                    raise ValueError("throughput 字典中的 value 必须是数值类型")
+                if throughput["value"] <= 0:
+                    raise ValueError("throughput 字典中的 value 必须是正数")
             else:
-                raise ValueError("throughput 必须是数字或数字列表")
+                raise ValueError("throughput 必须是数字、数字列表或包含 value 字段的字典")
 
     def _generate_visualizations(self, data: Dict[str, Any], include_tradeoff: bool = True) -> List[str]:
         """生成基准测试结果的可视化图表。
@@ -225,69 +232,54 @@ class ReportGenerator:
         plt.close('all')
         return chart_files
 
-    def generate_report(self, data: Dict[str, Any], output_format: str = "json", include_visualizations: bool = True) -> str:
+    def generate_report(self, benchmark_results: Dict[str, Any], tradeoff_results: Optional[Dict[str, Any]] = None, output_format: str = "json", include_visualizations: bool = True) -> str:
         """生成基准测试报告。
 
         Args:
-            data: 基准测试数据
-            output_format: 输出格式，支持 "json"、"html"、"csv" 和 "markdown"
-            include_visualizations: 是否包含可视化图表
+            benchmark_results: 基准测试结果
+            tradeoff_results: 权衡分析结果（可选）
+            output_format: 输出格式（json/csv/markdown），默认json
+            include_visualizations: 是否生成可视化，默认True
 
         Returns:
             报告文件路径
 
         Raises:
-            ValueError: 当输入数据无效或输出格式不支持时
+            ValueError: 当输入数据无效时
         """
         # 验证输入数据
-        self._validate_data(data)
-        
+        self._validate_data(benchmark_results)
         # 生成可视化图表
         chart_files = []
         if include_visualizations:
             try:
-                chart_files = self._generate_visualizations(data)
-                # 生成权衡曲线
-                curve_path = os.path.join(self.output_dir, "tradeoff_curve.png")
-                self._plot_tradeoff_curve(data, curve_path)
+                chart_files = self._generate_visualizations(benchmark_results)
             except Exception as e:
-                logger.warning(f"生成可视化图表时出错: {str(e)}")
-
-        # 根据输出格式生成报告
+                logger.warning(f"生成可视化图表失败: {str(e)}")
+        # 生成报告文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if output_format == "json":
-            report_path = os.path.join(self.output_dir, "report.json")
-            with open(report_path, "w", encoding="utf-8") as f:
-                # 添加图表路径到数据中
-                if chart_files:
-                    data["visualizations"] = [os.path.basename(f) for f in chart_files]
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        elif output_format == "html":
-            report_path = os.path.join(self.output_dir, "report.html")
-            html_content = self._generate_html_report(data)
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(html_content)
+            report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.json")
+            report_data = {
+                "timestamp": timestamp,
+                **benchmark_results,
+                "visualizations": chart_files
+            }
+            if tradeoff_results:
+                report_data["tradeoff_results"] = tradeoff_results
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(report_data, f, indent=4, ensure_ascii=False)
         elif output_format == "csv":
-            report_path = os.path.join(self.output_dir, "report.csv")
-            # 将数据扁平化为CSV格式
-            df = pd.DataFrame()
-            if "metrics" in data:
-                metrics = data["metrics"]
-                for key, value in metrics.items():
-                    if isinstance(value, (int, float)):
-                        df[key] = [value]
-                    elif isinstance(value, list):
-                        df[key] = [",".join(map(str, value))]
-                    elif isinstance(value, dict):
-                        for sub_key, sub_value in value.items():
-                            df[f"{key}_{sub_key}"] = [sub_value]
-            df.to_csv(report_path, index=False)
+            report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.csv")
+            self._generate_csv_report(benchmark_results, report_path)
         elif output_format == "markdown":
-            report_path = os.path.join(self.output_dir, "report.md")
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(self._generate_markdown(data))
+            report_path = os.path.join(self.output_dir, f"benchmark_report_{timestamp}.md")
+            md_content = self._generate_markdown(benchmark_results)
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(md_content)
         else:
-            raise ValueError("不支持的报告格式")
-        
+            raise ValueError("不支持的报告格式: " + output_format)
+        logger.info(f"报告已生成: {report_path}")
         return report_path
     
     def generate_tradeoff_curve(self, data: Dict[str, Any]) -> str:
@@ -411,34 +403,38 @@ class ReportGenerator:
                 if metric == "throughput" and val == 0:
                     raise ValueError(f"values中的第{i+1}个元素的throughput不能为0")
     
-    def _validate_metric_value(self, key: str, value: Union[float, List[float], Dict[str, float]]) -> None:
+    def _validate_metric_value(self, key: str, value: Union[Dict[str, Any], float, list]) -> None:
         """验证指标值的有效性。
 
         Args:
             key: 指标名称
-            value: 要验证的指标值
-
-        Raises:
-            ValueError: 当指标值无效时抛出
+            value: 指标值，可以是字典、数值或列表类型
         """
-        if isinstance(value, (float, int)):
+        if isinstance(value, (int, float)):
             if value < 0:
                 raise ValueError(f"{key}指标值不能为负数")
-        elif isinstance(value, list):
+            return
+        if isinstance(value, list):
             if not value:
-                raise ValueError(f"{key}指标列表不能为空")
-            if any(v < 0 for v in value):
-                raise ValueError(f"{key}指标列表中不能包含负数")
-        elif isinstance(value, dict):
-            if not value:
-                raise ValueError(f"{key}指标字典不能为空")
-            for k, v in value.items():
-                if not isinstance(v, (float, int)):
-                    raise ValueError(f"{key}指标字典中的值必须是数值类型")
+                return
+            for v in value:
+                if not isinstance(v, (int, float)):
+                    raise ValueError(f"{key}指标列表中的元素必须是数值类型")
                 if v < 0:
-                    raise ValueError(f"{key}指标字典中不能包含负数")
-        else:
-            raise ValueError(f"{key}指标值类型必须是数值、列表或字典")
+                    raise ValueError(f"{key}指标列表中的元素不能为负数")
+            return
+        if not isinstance(value, dict):
+            raise ValueError(f"{key}指标必须是字典类型、数值类型或列表类型")
+        if "value" not in value:
+            raise ValueError(f"{key}指标字典必须包含value字段")
+        if not isinstance(value["value"], (int, float)):
+            raise ValueError(f"{key}指标字典中的值必须是数值类型")
+        if value["value"] < 0:
+            raise ValueError(f"{key}指标字典中的值不能为负数")
+        if "unit" not in value:
+            raise ValueError(f"{key}指标字典必须包含unit字段")
+        if not isinstance(value["unit"], str):
+            raise ValueError(f"{key}指标字典中的单位必须是字符串类型")
 
     def validate_metrics(self, metrics):
         """验证指标数据的格式。
