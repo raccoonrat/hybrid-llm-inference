@@ -60,7 +60,7 @@ class AlpacaLoader:
             "自然语言处理", "计算机视觉", "知识图谱"
         ]
         
-        for _ in range(5):
+        for _ in range(50):
             template = random.choice(templates)
             topic = random.choice(topics)
             other_topic = random.choice([t for t in topics if t != topic])

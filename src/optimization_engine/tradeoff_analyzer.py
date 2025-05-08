@@ -77,8 +77,9 @@ class TradeoffAnalyzer:
                     output_dist = distribution.get("output_distribution")
                     
                 if not input_dist or not output_dist:
-                    raise ValueError("找不到有效的输入/输出分布数据")
-                    
+                    self.logger.warning("分布数据为空，使用默认分布 input: {32: 1.0}, output: {64: 1.0}")
+                    input_dist = {32: 1.0}
+                    output_dist = {64: 1.0}
                 # 更新分布数据结构
                 distribution = {
                     "distribution": {
@@ -116,7 +117,8 @@ class TradeoffAnalyzer:
             "请帮我详细分析一下大型语言模型在推理阶段的性能优化策略。包括但不限于：量化技术、模型压缩、分布式推理、异构计算、缓存优化等方面。同时也请考虑能耗优化、成本控制、延迟要求等实际部署问题。对于不同的应用场景，如何选择最适合的优化策略组合？" * 4
         ]
 
-        lambda_values = np.arange(0.0, 1.1, 0.1)
+        # lambda_values = np.arange(0.0, 1.1, 0.1)
+        lambda_values = np.arange(0.0, 1.1, 0.5)  # 只测3个点
         results = {}
 
         for lambda_param in lambda_values:

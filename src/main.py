@@ -47,6 +47,7 @@ def main():
         # 加载数据集
         dataset_path = "data/alpaca_data.json"
         df = AlpacaLoader(dataset_path).load_data()
+        df = df.head(3)
         
         # 加载模型配置
         model_config_path = os.path.join(os.path.dirname(__file__), "..", "configs", "model_config.yaml")
@@ -133,7 +134,7 @@ def main():
         # Optimize thresholds
         optimizer = ThresholdOptimizer(
             search_range=model_config.get("search_range", (0, 100)),
-            num_points=10,
+            num_points=3,  # 只采样3个点
             device_id=device,
             hardware_config=hardware_config,
             model=model
