@@ -320,7 +320,15 @@ class SystemBenchmarking(BaseBenchmarking):
             logger.info(f"任务推理耗时: {execution_time:.3f} 秒")
             
             # 获取性能指标
-            metrics = self.profiler.get_metrics() if self.profiler else {}
+            try:
+                metrics = self.profiler.get_metrics() if self.profiler else {}
+            except Exception as e:
+                logger.warning(f"获取性能指标失败: {str(e)}")
+                metrics = {}
+            
+            # 确保 metrics 不为 None，并提供默认值
+            if metrics is None:
+                metrics = {}
             
             return {
                 "latency": metrics.get("latency", 0.1),

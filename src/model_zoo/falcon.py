@@ -99,7 +99,7 @@ class FalconModel(BaseModel):
             logger.error(f"推理失败: {str(e)}")
             raise
     
-    def infer(self, input_text: str) -> str:
+    def infer(self, input_text: str, **kwargs) -> str:
         """执行推理。
         
         Args:
@@ -110,7 +110,6 @@ class FalconModel(BaseModel):
         """
         if not input_text:
             raise ValueError("输入文本不能为空")
-            
         return self._do_inference(input_text)
     
     def get_token_count(self, text: str) -> int:
@@ -151,7 +150,7 @@ class LocalFalcon(BaseModel):
         self.model = self.accelerate.get_model()
         self.logger.info(f"Loaded local Falcon model: {model_name}")
     
-    def infer(self, input_text):
+    def infer(self, input_text: str, **kwargs) -> str:
         inputs = self.tokenizer(input_text, return_tensors="pt")
         outputs = self.model.generate(**inputs, max_length=self.config.get("max_length", 512))
         return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -168,7 +167,7 @@ class APIFalcon(BaseModel):
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
         self.logger.info(f"Initialized API Falcon model: {model_name}")
     
-    def infer(self, input_text):
+    def infer(self, input_text: str, **kwargs) -> str:
         payload = {"inputs": input_text, "parameters": {"max_length": self.config.get("max_length", 512)}}
         response = requests.post(self.api_url, headers=self.headers, json=payload)
         response.raise_for_status()

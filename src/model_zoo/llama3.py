@@ -21,7 +21,7 @@ class LocalLlama3(BaseModel):
             logger.error(f"Failed to load local Llama-3 model: {e}")
             raise
 
-    def infer(self, input_text):
+    def infer(self, input_text: str, **kwargs) -> str:
         if not input_text:
             logger.warning("Empty input text provided")
             return ""
@@ -58,7 +58,7 @@ class APILlama3(BaseModel):
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
         logger.info(f"Initialized API Llama-3 model: {model_name}")
 
-    def infer(self, input_text):
+    def infer(self, input_text: str, **kwargs) -> str:
         if not input_text:
             logger.warning("Empty input text provided")
             return ""
@@ -98,7 +98,7 @@ class Llama3Model(BaseModel):
         """
         super().__init__(config)
         
-    def _do_inference(self, input_text: str) -> str:
+    def infer(self, input_text: str, **kwargs) -> str:
         """
         执行实际的推理操作。
 

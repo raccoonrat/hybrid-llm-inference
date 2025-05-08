@@ -275,27 +275,27 @@ class ReportGenerator:
             md += "* 每个点：对应一个 λ 权重（如 λ=0, 0.25, 0.5, 0.75, 1.0），代表在该权重下优化目标的最优系统配置下的能耗和时延表现。\n\n"
             
             # 添加 λ 权重的含义说明
-            md += "### 2. λ（lambda）权重的含义\n\n"
-            md += "* λ 是损失函数中的权衡系数，定义为：Cost=λ⋅Energy+(1−λ)⋅Runtime\n\n"
+            md += '### 2. λ（lambda）权重的含义\n\n'
+            md += '* λ 是损失函数中的权衡系数，定义为：Cost=λ⋅Energy+(1−λ)⋅Runtime\n\n'
             md += '* 当 λ 趋近于 0，系统更关注时延（追求最快响应），此时选用高性能但高能耗的硬件或模型，点会靠近"低时延高能耗"区域。\n\n'
             md += '* 当 λ 趋近于 1，系统更关注能耗（追求最低能耗），此时选用低功耗但慢速的硬件或模型，点会靠近"低能耗高时延"区域。\n\n'
-            md += "* λ 取中间值时，系统在能耗和时延之间做折中，点分布在曲线中间。\n\n"
+            md += '* λ 取中间值时，系统在能耗和时延之间做折中，点分布在曲线中间。\n\n'
             
             # 添加曲线趋势与论文结论说明
-            md += "### 3. 曲线的趋势与论文结论\n\n"
+            md += '### 3. 曲线的趋势与论文结论\n\n'
             md += '* 曲线通常呈现"右下向左上"递减趋势：即 λ 从 0 增大到 1，时延逐渐增加，能耗逐渐降低。\n\n'
-            md += "* 每个点代表一种最优权衡策略：通过调整 λ，可以灵活选择更适合实际需求的系统配置。\n\n"
-            md += "* 曲线的形状反映系统的权衡能力：如果曲线陡峭，说明小幅牺牲时延可以大幅降低能耗，反之亦然。\n\n"
+            md += '* 每个点代表一种最优权衡策略：通过调整 λ，可以灵活选择更适合实际需求的系统配置。\n\n'
+            md += '* 曲线的形状反映系统的权衡能力：如果曲线陡峭，说明小幅牺牲时延可以大幅降低能耗，反之亦然。\n\n'
             
             # 添加论文中的实际应用说明
-            md += "### 4. 论文中的实际应用\n\n"
-            md += "* 论文通过该曲线展示了混合推理系统（如 CPU+GPU+多模型）在不同优化目标下的表现。\n\n"
-            md += "* 用户或系统设计者可根据实际需求（如移动端更关注能耗，云端更关注时延）选择合适的 λ，从而自动获得最优的推理方案。\n\n"
+            md += '### 4. 论文中的实际应用\n\n'
+            md += '* 论文通过该曲线展示了混合推理系统（如 CPU+GPU+多模型）在不同优化目标下的表现。\n\n'
+            md += '* 用户或系统设计者可根据实际需求（如移动端更关注能耗，云端更关注时延）选择合适的 λ，从而自动获得最优的推理方案。\n\n'
             
             # 添加总结
-            md += "### 总结\n\n"
+            md += '### 总结\n\n'
             md += '* tradeoff 曲线直观展示了"能耗-时延"之间的权衡关系，是混合推理系统智能调度和资源分配的理论基础。\n\n'
-            md += "* 通过调整 λ，可以灵活适配不同场景下的性能需求，实现论文提出的按需最优推理。\n\n"
+            md += '* 通过调整 λ，可以灵活适配不同场景下的性能需求，实现论文提出的按需最优推理。\n\n'
             
             # 添加实际数据表格
             if isinstance(tradeoff_results, dict):
@@ -732,7 +732,10 @@ class ReportGenerator:
             # 写入基本指标
             f.write("## Basic Metrics\n\n")
             for key, value in data["metrics"].items():
-                f.write(f"- {key}: {value:.2f}\n")
+                if isinstance(value, (int, float)):
+                    f.write(f"- {key}: {value:.2f}\n")
+                else:
+                    f.write(f"- {key}: {value}\n")
                 
             # 写入调度指标
             f.write("\n## Scheduling Metrics\n\n")
@@ -755,12 +758,19 @@ class ReportGenerator:
                 # 写入基本指标
                 f.write("### Performance Metrics\n\n")
                 for key in ["throughput", "latency", "energy", "runtime"]:
-                    f.write(f"- {key}: {metrics[key]:.2f}\n")
+                    value = metrics[key]
+                    if isinstance(value, (int, float)):
+                        f.write(f"- {key}: {value:.2f}\n")
+                    else:
+                        f.write(f"- {key}: {value}\n")
                 
                 # 写入汇总指标
                 f.write("\n### Summary Metrics\n\n")
                 for key, value in metrics["summary"].items():
-                    f.write(f"- {key}: {value:.2f}\n")
+                    if isinstance(value, (int, float)):
+                        f.write(f"- {key}: {value:.2f}\n")
+                    else:
+                        f.write(f"- {key}: {value}\n")
                 
                 f.write("\n")
                 

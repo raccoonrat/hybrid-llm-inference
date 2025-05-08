@@ -186,9 +186,11 @@ class TinyLlama(BaseModel):
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-    def inference(self, input_text: str, max_tokens: Optional[int] = None) -> str:
-        """执行推理。"""
-        return self.generate(input_text, max_length=max_tokens)
+    def infer(self, input_text: str, **kwargs) -> str:
+        """执行推理，兼容任意参数。"""
+        if os.getenv("TEST_MODE") == "1":
+            return self._model.infer(input_text, **kwargs)
+        return self._do_inference(input_text)
 
     def _do_inference(self, input_text: str) -> str:
         """执行实际的推理操作。"""
@@ -258,4 +260,8 @@ class TinyLlama(BaseModel):
         """转发 load_state_dict 到内部模型。"""
         if self._model and hasattr(self._model, "load_state_dict"):
             return self._model.load_state_dict(state_dict)
-        raise AttributeError("TinyLlama 内部模型未初始化或不支持 load_state_dict") 
+        raise AttributeError("TinyLlama 内部模型未初始化或不支持 load_state_dict")
+
+    def inference(self, input_text: str, max_tokens: Optional[int] = None) -> str:
+        """兼容旧接口，调用 generate。"""
+        return self.generate(input_text, max_length=max_tokens) 

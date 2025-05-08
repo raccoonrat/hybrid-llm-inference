@@ -133,6 +133,18 @@ class MockModel(nn.Module):
         logger.info("测试模式：跳过加载状态字典")
         return
 
+    def infer(self, input_text: str, **kwargs) -> str:
+        """
+        执行推理，兼容任意参数。
+
+        Args:
+            input_text: 输入文本
+            **kwargs: 其他推理参数
+        Returns:
+            str: 输出文本
+        """
+        return self.generate(input_text, **kwargs)
+
 class MockTokenizer:
     """
     模拟的分词器类。

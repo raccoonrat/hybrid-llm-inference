@@ -18,9 +18,49 @@ class CostFunction:
             self.lambda_param = float(config)
             if hardware_config is None:
                 raise ValueError("当 config 为 lambda 参数时，必须提供 hardware_config")
+
+            # 处理 device_id，兼容字符串和整数
+            device_id = hardware_config.get("device_id", "cuda:0")
+            if isinstance(device_id, str) and device_id.startswith("cuda:"):
+                try:
+                    device_id_int = int(device_id.split(":")[1])
+                except Exception:
+                    raise ValueError(f"无法解析 device_id: {device_id}")
+            elif isinstance(device_id, int):
+                device_id_int = device_id
+            else:
+                raise ValueError("device_id 必须是整数或形如 'cuda:N' 的字符串")
+            hardware_config = dict(hardware_config)  # 拷贝，避免副作用
+            hardware_config["device_id"] = device_id_int
+            self.device_id = device_id_int
+
+            # 根据硬件配置初始化对应的 profiler
+            device_type = hardware_config.get("device_type", "rtx4050")
+            logger.info(f"初始化 profiler，设备类型: {device_type}")
+            
+            try:
+                if device_type == "rtx4050":
+                    from ..hardware_profiling.rtx4050_profiler import RTX4050Profiler
+                    self.profiler = RTX4050Profiler(hardware_config)
+                elif device_type == "a100":
+                    from ..hardware_profiling.a100_profiler import A100Profiler
+                    self.profiler = A100Profiler(hardware_config)
+                elif device_type == "a800":
+                    from ..hardware_profiling.a800_profiling import A800Profiler
+                    self.profiler = A800Profiler(hardware_config)
+                elif device_type == "m1_pro":
+                    from ..hardware_profiling.m1_pro_profiler import M1ProProfiler
+                    self.profiler = M1ProProfiler(hardware_config)
+                else:
+                    raise ValueError(f"不支持的设备类型: {device_type}")
+                
+                self.measure_fn = self.profiler.measure
+                logger.info(f"成功初始化 {device_type} profiler")
+            except Exception as e:
+                logger.error(f"初始化 profiler 失败: {e}")
+                raise
+            
             self.model_config = {}
-            self.measure_fn = lambda x, y, z: {"energy": x * y * 0.1, "runtime": x * y * 0.01}  # 简化的测量函数
-            self.device_id = hardware_config.get("device_id", "cuda:0")
         else:
             self.model_config = config.get("model_config", {})
             self.measure_fn = config.get("measure_fn")
@@ -36,8 +76,10 @@ class CostFunction:
         if self.lambda_param < 0 or self.lambda_param > 1:
             raise ValueError("lambda_param 必须在 [0, 1] 范围内")
             
-        if not isinstance(self.device_id, str):
-            raise ValueError("device_id 必须是字符串")
+        # 支持两种 device_id 格式：整数（如 0）或字符串（如 "cuda:0"）
+        if not (isinstance(self.device_id, int) or 
+                (isinstance(self.device_id, str) and self.device_id.startswith("cuda:"))):
+            raise ValueError("device_id 必须是整数或形如 'cuda:N' 的字符串")
             
         if not callable(self.measure_fn):
             raise ValueError("measure_fn 必须是可调用对象")
@@ -64,18 +106,20 @@ class CostFunction:
             否则返回成本值
         """
         try:
-            # 使用测量函数获取性能指标
-            metrics = self.measure_fn(input_tokens, output_tokens, self.device_id)
-            
+            logger.info(f"开始计算性能指标: input_tokens={input_tokens}, output_tokens={output_tokens}")
+            if task is None:
+                logger.error("必须提供任务函数")
+                raise ValueError("必须提供任务函数")
+            # 正确参数顺序
+            metrics = self.measure_fn(task, input_tokens, output_tokens)
+            logger.info(f"测量结果: input={input_tokens}, output={output_tokens}, metrics={metrics}")
             if return_metrics:
                 return metrics
-            
-            # 计算成本
             cost = self._calculate_cost(metrics)
+            logger.info(f"计算得到成本: {cost}")
             return cost
-            
         except Exception as e:
-            logger.error(f"计算失败: {str(e)}")
+            logger.error(f"计算失败: {e}")
             raise
 
     def _calculate_cost(self, metrics: Dict[str, float]) -> float:
@@ -102,8 +146,7 @@ class CostFunction:
             性能指标字典
         """
         try:
-            # 使用测量函数获取性能指标
-            metrics = self.measure_fn(input_tokens, output_tokens, self.device_id)
+            metrics = self.measure_fn(task, input_tokens, output_tokens)
             return metrics
         except Exception as e:
             logger.error(f"性能指标计算失败: {str(e)}")
