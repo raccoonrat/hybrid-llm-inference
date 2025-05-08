@@ -18,6 +18,7 @@ import pickle
 import torch
 import copy
 import os
+from src.model_zoo import get_model
 
 def main():
     logger = get_logger(__name__)
@@ -126,17 +127,16 @@ def main():
         # 删除 device 字段，避免影响 TaskAllocator
         del hardware_config["device"]
         
-        # 兼容ThresholdOptimizer的measure_fn签名
-        def dummy_measure_fn(input_tokens, output_tokens, device_id):
-            # 让成本随 input_tokens 和 output_tokens 增大
-            return {"latency": input_tokens * 0.1 + 1, "energy": output_tokens * 0.05 + 1}
-        
+        # 初始化模型实例
+        model = get_model(model_type, model_config)
+
         # Optimize thresholds
         optimizer = ThresholdOptimizer(
             search_range=model_config.get("search_range", (0, 100)),
             num_points=10,
             device_id=device,
-            measure_fn=dummy_measure_fn
+            hardware_config=hardware_config,
+            model=model
         )
         # 这里的optimize参数需根据实际实现调整，暂用空字典
         thresholds = optimizer.optimize({})

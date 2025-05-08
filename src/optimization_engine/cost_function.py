@@ -33,6 +33,7 @@ class CostFunction:
             hardware_config = dict(hardware_config)  # 拷贝，避免副作用
             hardware_config["device_id"] = device_id_int
             self.device_id = device_id_int
+            self.hardware_config = hardware_config
 
             # 根据硬件配置初始化对应的 profiler
             device_type = hardware_config.get("device_type", "rtx4050")
@@ -66,6 +67,7 @@ class CostFunction:
             self.measure_fn = config.get("measure_fn")
             self.device_id = config.get("device_id", "cuda:0")
             self.lambda_param = config.get("lambda_param", 0.5)
+            self.hardware_config = hardware_config
             
         self._validate_config()
     
@@ -75,12 +77,16 @@ class CostFunction:
             raise ValueError("lambda_param 必须是数值类型")
         if self.lambda_param < 0 or self.lambda_param > 1:
             raise ValueError("lambda_param 必须在 [0, 1] 范围内")
-            
-        # 支持两种 device_id 格式：整数（如 0）或字符串（如 "cuda:0"）
-        if not (isinstance(self.device_id, int) or 
-                (isinstance(self.device_id, str) and self.device_id.startswith("cuda:"))):
-            raise ValueError("device_id 必须是整数或形如 'cuda:N' 的字符串")
-            
+        
+        if self.hardware_config is not None:
+            device_type = self.hardware_config.get("device_type", "")
+            if device_type in ["nvidia", "a100", "rtx4050"]:
+                if not (isinstance(self.device_id, int) or (isinstance(self.device_id, str) and self.device_id.startswith("cuda:"))):
+                    raise ValueError("NVIDIA 设备的 device_id 必须是整数或形如 'cuda:N' 的字符串")
+            else:
+                if not isinstance(self.device_id, int):
+                    raise ValueError("非NVIDIA设备的 device_id 必须是整数")
+        
         if not callable(self.measure_fn):
             raise ValueError("measure_fn 必须是可调用对象")
     
@@ -110,8 +116,11 @@ class CostFunction:
             if task is None:
                 logger.error("必须提供任务函数")
                 raise ValueError("必须提供任务函数")
-            # 正确参数顺序
-            metrics = self.measure_fn(task, input_tokens, output_tokens)
+            # 根据是否有 profiler 区分参数顺序
+            if hasattr(self, "profiler"):
+                metrics = self.measure_fn(task, input_tokens, output_tokens)
+            else:
+                metrics = self.measure_fn(input_tokens, output_tokens, self.device_id)
             logger.info(f"测量结果: input={input_tokens}, output={output_tokens}, metrics={metrics}")
             if return_metrics:
                 return metrics
@@ -126,27 +135,23 @@ class CostFunction:
         """计算成本。
 
         Args:
-            metrics: 性能指标字典，包含 "latency" 和 "energy" 键
+            metrics: 性能指标字典，包含 "latency" 或 "runtime" 和 "energy" 键
 
         Returns:
             成本值
         """
-        return self.lambda_param * metrics["energy"] + (1 - self.lambda_param) * metrics["latency"]
+        latency = metrics.get("latency", metrics.get("runtime"))
+        if latency is None:
+            raise ValueError("metrics 中缺少 latency/runtime 字段")
+        return self.lambda_param * metrics["energy"] + (1 - self.lambda_param) * latency
 
     def compute(self, task: Callable, input_tokens: int, output_tokens: int, system: str) -> Dict[str, float]:
-        """计算任务的性能指标。
-
-        Args:
-            task: 任务函数
-            input_tokens: 输入令牌数
-            output_tokens: 输出令牌数
-            system: 系统名称
-
-        Returns:
-            性能指标字典
-        """
+        """计算任务的性能指标。"""
         try:
-            metrics = self.measure_fn(task, input_tokens, output_tokens)
+            if hasattr(self, "profiler"):
+                metrics = self.measure_fn(task, input_tokens, output_tokens)
+            else:
+                metrics = self.measure_fn(input_tokens, output_tokens, self.device_id)
             return metrics
         except Exception as e:
             logger.error(f"性能指标计算失败: {str(e)}")

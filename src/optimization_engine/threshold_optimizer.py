@@ -21,7 +21,8 @@ class ThresholdOptimizer:
         search_range: Tuple[float, float] = (0.0, 1.0),
         num_points: int = 10,
         device_id: str = "cuda:0",
-        measure_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
+        hardware_config: Optional[Dict[str, Any]] = None,
+        model=None
     ):
         """初始化阈值优化器。
 
@@ -29,21 +30,18 @@ class ThresholdOptimizer:
             search_range: 搜索范围元组 (min_threshold, max_threshold)
             num_points: 搜索点数量
             device_id: GPU设备ID
-            measure_fn: 性能测量函数，接受任务字典，返回包含metrics的字典
+            hardware_config: 硬件配置字典
+            model: 推理模型（可选，用于真实推理）
         """
         self.search_range = search_range
         self.num_points = num_points
         self.device_id = device_id
-        self.measure_fn = measure_fn or self._default_measure_fn
+        self.hardware_config = hardware_config
+        self.model = model
         self._validate_config()
         
-        self.cost_function = CostFunction(
-            config={
-                "lambda_param": 0.5,
-                "measure_fn": self.measure_fn,
-                "device_id": self.device_id
-            }
-        )
+        # 默认 lambda=0.5，可根据需要调整
+        self.cost_function = CostFunction(0.5, self.hardware_config)
     
     def _validate_config(self):
         """验证配置参数。"""
@@ -62,16 +60,6 @@ class ThresholdOptimizer:
             
         if not isinstance(self.device_id, str):
             raise ValueError("device_id 必须是字符串类型")
-    
-    def _default_measure_fn(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        """默认性能测量函数。"""
-        return {
-            "metrics": {
-                "latency": 1.0,
-                "energy": 1.0,
-                "accuracy": 0.9
-            }
-        }
     
     def optimize(self, task: Dict[str, Any]) -> float:
         """优化阈值。
@@ -101,19 +89,22 @@ class ThresholdOptimizer:
                 input_tokens = input_tokens[0]
             output_tokens = task.get("max_tokens", 100)
             
-            # 执行性能测量
-            result = self.measure_fn(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                device_id=self.device_id
-            )
-            metrics = result.get("metrics", {})
-            
-            # 计算成本
+            # 构造真实推理任务
+            if self.model is not None:
+                def inference_task():
+                    return self.model.infer(
+                        task.get("input", "测试输入"),
+                        max_tokens=output_tokens
+                    )
+            else:
+                def inference_task():
+                    return None
+
+            # 计算成本（调用真实 profiler）
             cost = self.cost_function.calculate(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
-                task=lambda: None
+                task=inference_task
             )
             costs.append(cost)
         
