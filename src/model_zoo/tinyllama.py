@@ -4,7 +4,7 @@ import os
 import logging
 from typing import Dict, Any, Optional, List
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import LlamaForCausalLM, AutoTokenizer, AutoConfig
 from safetensors.torch import load_file
 from src.model_zoo.base_model import BaseModel
 from toolbox.logger import get_logger
@@ -54,12 +54,11 @@ class TinyLlama(BaseModel):
             self._tokenizer = self._model.tokenizer
             self.logger.info("成功初始化测试模式的模拟模型和分词器")
             self.initialized = True
-            return  # 在测试模式下直接返回，不调用父类初始化
-        
+            return
+
         # 非测试模式下，调用父类初始化
         super().__init__(config)
         self._load_model()
-
         logger.info("TinyLlama 模型初始化完成")
 
     def _validate_config(self, config: Dict[str, Any]) -> None:
@@ -111,7 +110,8 @@ class TinyLlama(BaseModel):
             # 加载分词器
             self._tokenizer = AutoTokenizer.from_pretrained(
                 self.config["model_path"],
-                trust_remote_code=True
+                trust_remote_code=True,
+                local_files_only=True
             )
             
             # 设置特殊令牌
@@ -119,36 +119,37 @@ class TinyLlama(BaseModel):
                 self._tokenizer.pad_token = self._tokenizer.eos_token
             
             # 加载模型配置
-            model_config = AutoConfig.from_pretrained(
-                self.config["model_path"],
-                trust_remote_code=True
-            )
-            
-            # 读取config.json并同步参数
-            config_json_path = os.path.join(self.config["model_path"], "config.json")
-            with open(config_json_path, "r", encoding="utf-8") as f:
+            config_path = os.path.join(self.config["model_path"], "config.json")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"配置文件不存在: {config_path}")
+                
+            with open(config_path, "r", encoding="utf-8") as f:
                 config_dict = json.load(f)
-            for k, v in config_dict.items():
-                setattr(model_config, k, v)
-            logger.info("已从config.json同步模型配置参数")
             
-            # 加载模型
-            self._model = AutoModelForCausalLM.from_pretrained(
+            # 确保使用正确的数据类型
+            if "torch_dtype" in config_dict:
+                dtype = getattr(torch, config_dict["torch_dtype"])
+            else:
+                dtype = self.dtype
+            
+            # 使用 LlamaForCausalLM 而不是 AutoModelForCausalLM
+            self._model = LlamaForCausalLM.from_pretrained(
                 self.config["model_path"],
-                config=model_config,
-                torch_dtype=torch.float16 if self.config.get("dtype") == "float16" else torch.float32,
+                torch_dtype=dtype,
                 device_map="auto",
                 trust_remote_code=True,
+                local_files_only=True,
+                use_safetensors=True,
                 low_cpu_mem_usage=True
             )
             
             # 设置模型配置
             self._model.config.pad_token_id = self._tokenizer.pad_token_id
             
-            logger.info(f"成功加载TinyLlama模型和分词器")
+            logger.info(f"成功加载TinyLlama模型和分词器，使用数据类型: {dtype}")
             
         except Exception as e:
-            error_msg = f"模型加载失败。请检查模型路径 '{self.config['model_path']}' 是否正确。\n错误详情: {str(e)}"
+            error_msg = f"模型加载失败: {str(e)}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 

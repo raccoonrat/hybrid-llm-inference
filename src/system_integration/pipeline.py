@@ -8,19 +8,22 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Union
 import pandas as pd
+import numpy as np
+import time
+from datetime import datetime
 
-from ..dataset_manager.alpaca_loader import AlpacaLoader
-from ..data_processing.token_processing import TokenProcessing
-from ..optimization_engine.threshold_optimizer import ThresholdOptimizer
-from ..optimization_engine.tradeoff_analyzer import TradeoffAnalyzer
-from ..scheduling.token_based_scheduler import TokenBasedScheduler
-from ..scheduling.task_allocator import TaskAllocator
-from ..benchmarking.system_benchmarking import SystemBenchmarking
-from ..benchmarking.report_generator import ReportGenerator
-from ..toolbox.config_manager import ConfigManager
-from ..model_inference.hybrid_inference import HybridInference
-from ..hardware_profiling import get_profiler
-from ..model_zoo.base_model import BaseModel
+from dataset_manager.alpaca_loader import AlpacaLoader
+from data_processing.token_processing import TokenProcessing
+from optimization_engine.threshold_optimizer import ThresholdOptimizer
+from optimization_engine.tradeoff_analyzer import TradeoffAnalyzer
+from scheduling.token_based_scheduler import TokenBasedScheduler
+from scheduling.task_allocator import TaskAllocator
+from benchmarking.system_benchmarking import SystemBenchmarking
+from benchmarking.report_generator import ReportGenerator
+from toolbox.config_manager import ConfigManager
+from model_inference.hybrid_inference import HybridInference
+from hardware_profiling import get_profiler
+from model_zoo.base_model import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -393,22 +396,13 @@ class SystemPipeline:
             
             # 创建优化器
             optimizer = ThresholdOptimizer(
-                search_range=(0.1, 0.9),
+                search_range=(0.0, 1.0),
                 num_points=10,
-                device_id="cuda:0",
-                measure_fn=self._measure_performance
+                device_id=self.config["model"].get("device", "cuda:0"),
+                hardware_config=self.config["hardware"],
+                model=self.hybrid_inference.model if hasattr(self, "hybrid_inference") else None
             )
-            
-            # 创建示例任务
-            example_task = {
-                "input": "测试输入",
-                "max_tokens": 100,
-                "decoded_text": "测试输入",
-                "input_tokens": [50],
-                "input_tokens_count": 50,
-                "output_tokens_count": 100
-            }
-            thresholds = optimizer.optimize(example_task)
+            thresholds = optimizer.optimize(processed_data)
             
             # 分析权衡
             analyzer = TradeoffAnalyzer(
@@ -552,10 +546,11 @@ class SystemPipeline:
 
             # 使用阈值优化器
             optimizer = ThresholdOptimizer(
-                search_range=(0.1, 0.9),
+                search_range=(0.0, 1.0),
                 num_points=10,
-                device_id="cuda:0",
-                measure_fn=self._measure_performance
+                device_id=self.config["model"].get("device", "cuda:0"),
+                hardware_config=self.config["hardware"],
+                model=self.hybrid_inference.model if hasattr(self, "hybrid_inference") else None
             )
             thresholds = optimizer.optimize(processed_task)
 

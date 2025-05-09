@@ -1,5 +1,14 @@
 # hybrid-llm-inference/src/optimization_engine/cost_function.py
-from typing import Dict, Any, Callable, Union, Optional
+import os
+import numpy as np
+from typing import Dict, Any, List, Optional, Union, Callable
+import logging
+from pathlib import Path
+
+from hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from hardware_profiling.a100_profiler import A100Profiler
+from hardware_profiling.a800_profiling import A800Profiler
+from hardware_profiling.m1_pro_profiler import M1ProProfiler
 from toolbox.logger import get_logger
 
 logger = get_logger(__name__)
@@ -36,21 +45,17 @@ class CostFunction:
             self.hardware_config = hardware_config
 
             # 根据硬件配置初始化对应的 profiler
-            device_type = hardware_config.get("device_type", "rtx4050")
+            device_type = hardware_config.get("device_type", "rtx4050").lower()
             logger.info(f"初始化 profiler，设备类型: {device_type}")
             
             try:
-                if device_type == "rtx4050":
-                    from ..hardware_profiling.rtx4050_profiler import RTX4050Profiler
+                if device_type in ["rtx4050", "gpu"]:
                     self.profiler = RTX4050Profiler(hardware_config)
                 elif device_type == "a100":
-                    from ..hardware_profiling.a100_profiler import A100Profiler
                     self.profiler = A100Profiler(hardware_config)
                 elif device_type == "a800":
-                    from ..hardware_profiling.a800_profiling import A800Profiler
                     self.profiler = A800Profiler(hardware_config)
-                elif device_type == "m1_pro":
-                    from ..hardware_profiling.m1_pro_profiler import M1ProProfiler
+                elif device_type in ["m1_pro", "cpu_gpu"]:
                     self.profiler = M1ProProfiler(hardware_config)
                 else:
                     raise ValueError(f"不支持的设备类型: {device_type}")

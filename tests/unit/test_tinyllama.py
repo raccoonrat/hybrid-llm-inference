@@ -11,14 +11,14 @@ def model_config():
     return {
         "model_path": "models/TinyLlama-1.1B-Chat-v1.0",
         "device": "cuda" if torch.cuda.is_available() else "cpu",
-        "dtype": "float16",
+        "dtype": "bfloat16",  # 与config.json保持一致
         "batch_size": 4,
         "max_length": 2048
     }
 
 @pytest.fixture
 def model(model_config):
-    os.environ["TEST_MODE"] = "true"
+    os.environ["TEST_MODE"] = "1"
     model = TinyLlama(model_config)
     yield model
     if "TEST_MODE" in os.environ:
@@ -26,6 +26,7 @@ def model(model_config):
     model.cleanup()
 
 def test_model_validation(model_config):
+    """测试模型配置验证"""
     # 测试缺少必需字段
     invalid_config = model_config.copy()
     del invalid_config["model_path"]
@@ -52,10 +53,67 @@ def test_model_validation(model_config):
             TinyLlama(invalid_config)
 
 def test_model_initialization(model):
-    assert model._model is None
-    assert model._tokenizer is None
+    """测试模型初始化"""
     assert model.batch_size == 4
     assert model.max_length == 2048
+    assert model.device in ["cuda", "cpu"]
+    assert model.dtype == torch.bfloat16
+
+def test_model_attributes(model):
+    """测试模型属性"""
+    assert hasattr(model, "model_path")
+    assert hasattr(model, "device")
+    assert hasattr(model, "dtype")
+    assert hasattr(model, "batch_size")
+    assert hasattr(model, "max_length")
+    assert isinstance(model.batch_size, int)
+    assert isinstance(model.max_length, int)
+
+def test_config_validation(model_config):
+    """测试配置验证"""
+    os.environ["TEST_MODE"] = "1"
+    try:
+        model = TinyLlama(model_config)
+        assert model.batch_size == model_config["batch_size"]
+        assert model.max_length == model_config["max_length"]
+        assert model.dtype == getattr(torch, model_config["dtype"])
+    finally:
+        if "TEST_MODE" in os.environ:
+            del os.environ["TEST_MODE"]
+
+def test_mock_model_inference(model):
+    """测试模拟模型推理"""
+    input_text = "你好，请介绍一下你自己。"
+    response = model.infer(input_text)
+    assert isinstance(response, str)
+    assert len(response) > 0
+
+def test_mock_model_generate(model):
+    """测试模拟模型生成"""
+    input_text = "解释什么是人工智能。"
+    response = model.generate(input_text)
+    assert isinstance(response, str)
+    assert len(response) > 0
+
+def test_mock_model_batch_inference(model):
+    """测试模拟模型批量推理"""
+    input_texts = [
+        "什么是机器学习？",
+        "深度学习的应用场景有哪些？"
+    ]
+    for text in input_texts:
+        response = model.infer(text)
+        assert isinstance(response, str)
+        assert len(response) > 0
+
+def test_mock_model_metrics(model):
+    """测试模拟模型指标"""
+    metrics = model.get_metrics()
+    assert isinstance(metrics, dict)
+    assert "total_tokens" in metrics
+    assert "total_time" in metrics
+    assert "avg_tokens_per_second" in metrics
+    assert "avg_time_per_call" in metrics
 
 def test_inference_validation(model):
     # 测试空输入
@@ -109,15 +167,6 @@ def test_model_loading(model):
     with pytest.raises(FileNotFoundError, match="Model path does not exist"):
         model._load_model()
 
-def test_model_attributes(model):
-    assert hasattr(model, "model_path")
-    assert hasattr(model, "device")
-    assert hasattr(model, "dtype")
-    assert hasattr(model, "batch_size")
-    assert hasattr(model, "max_length")
-    assert isinstance(model.batch_size, int)
-    assert isinstance(model.max_length, int)
-
 def test_model_performance(model):
     """测试模型性能"""
     # 在测试模式下，我们只验证输入验证逻辑
@@ -138,25 +187,12 @@ def test_memory_management(model):
     final_memory = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
     assert final_memory <= initial_memory
 
-def test_config_validation(model_config):
-    """测试配置验证"""
-    # 设置测试模式
-    os.environ["TEST_MODE"] = "true"
-    try:
-        # 测试有效的配置
-        model = TinyLlama(model_config)
-        assert model.batch_size == model_config["batch_size"]
-        assert model.max_length == model_config["max_length"]
-    finally:
-        if "TEST_MODE" in os.environ:
-            del os.environ["TEST_MODE"]
-
 def test_model_device_compatibility(model_config):
     """测试模型设备兼容性"""
     # 测试 CPU 设备
     cpu_config = model_config.copy()
     cpu_config["device"] = "cpu"
-    os.environ["TEST_MODE"] = "true"
+    os.environ["TEST_MODE"] = "1"
     cpu_model = TinyLlama(cpu_config)
     assert cpu_model.device == "cpu"
 
@@ -169,7 +205,7 @@ def test_model_device_compatibility(model_config):
 
 def test_model_dtype_compatibility(model_config):
     """测试模型数据类型兼容性"""
-    os.environ["TEST_MODE"] = "true"
+    os.environ["TEST_MODE"] = "1"
     for dtype in ["float32", "float16"]:
         config = model_config.copy()
         config["dtype"] = dtype

@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Tuple, Union
-from ..toolbox.logger import get_logger
+from toolbox.logger import get_logger
 import logging
 from pathlib import Path
 
