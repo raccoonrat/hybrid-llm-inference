@@ -21,6 +21,7 @@ import psutil
 import random
 import torch
 import tempfile
+import yaml
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent.parent
@@ -34,7 +35,7 @@ from .test_benchmark_classes import TestSystemBenchmarking, TestModelBenchmarkin
 logger = get_logger(__name__)
 
 # 设置测试模式
-os.environ['TEST_MODE'] = '1'
+# os.environ['TEST_MODE'] = '0'
 
 class TensorEncoder(json.JSONEncoder):
     """自定义 JSON 编码器，用于处理 PyTorch Tensor 和 NumPy 数组。"""
@@ -84,21 +85,15 @@ def sample_dataset(tmp_path):
 
 @pytest.fixture
 def test_config():
-    """创建测试配置。"""
-    # 创建临时目录
+    """创建测试配置，使用真实模型。"""
+    # 读取真实模型配置
+    with open("configs/model_config.yaml", "r", encoding="utf-8") as f:
+        model_configs = yaml.safe_load(f)["models"]
+    # 选择你要测试的模型
+    model_info = model_configs["TinyLlama-1.1B-Chat-v1.0"]
+
+    # 创建临时数据集
     temp_dir = tempfile.mkdtemp()
-    model_path = os.path.join(temp_dir, "model.bin")
-    output_dir = os.path.join(temp_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 创建模拟模型文件
-    with open(model_path, "wb") as f:
-        # 创建一个有效的 PyTorch 模型文件
-        model = MockModel(model_path=model_path)
-        state_dict = model.state_dict()
-        torch.save(state_dict, f)
-    
-    # 创建数据集文件
     dataset_path = os.path.join(temp_dir, "dataset.json")
     dataset = [
         {"input": "test input 0", "output": "test output 0"},
@@ -106,26 +101,22 @@ def test_config():
     ]
     with open(dataset_path, "w", encoding="utf-8") as f:
         json.dump(dataset, f)
-    
+
     config = {
-        "model_name": "test_model",
-        "batch_size": 1,
+        "model_name": model_info["model_name"],
+        "batch_size": model_info.get("batch_size", 1),
         "dataset_path": dataset_path,
-        "model_config": {
-            "model_type": "test_model",
-            "model_path": model_path,
-            "device": "cpu"
-        },
+        "model_config": model_info,
         "hardware_config": {
-            "device": "cpu",
+            "device": model_info.get("device", "cpu"),
             "device_id": 0,
             "num_threads": 4
         },
-        "output_dir": output_dir
+        "output_dir": os.path.join(temp_dir, "output")
     }
-    
+
     yield config
-    
+
     # 清理临时文件
     shutil.rmtree(temp_dir)
 
