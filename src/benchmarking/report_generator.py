@@ -318,6 +318,9 @@ class ReportGenerator:
 
     def generate_report(self, benchmark_results: Dict[str, Any], tradeoff_results: Optional[Dict[str, Any]] = None, output_format: str = "json", include_visualizations: bool = True) -> str:
         """生成基准测试报告。"""
+        # 新增：打印原始指标数据
+        logger.info(f"[REPORT] 原始 benchmark_results['metrics']: {benchmark_results.get('metrics')}")
+        logger.info(f"[REPORT] 原始 tradeoff_results: {tradeoff_results}")
         # 验证输入数据
         self._validate_data(benchmark_results)
         # 生成可视化图表
@@ -370,6 +373,8 @@ class ReportGenerator:
         else:
             raise ValueError("不支持的报告格式: " + output_format)
         logger.info(f"报告已生成: {report_path}")
+        # 新增：打印最终写入的报告路径
+        logger.info(f"[REPORT] 报告内容已写入 {report_path}")
         return report_path
     
     def generate_tradeoff_curve(self, data: Dict[str, Any]) -> str:

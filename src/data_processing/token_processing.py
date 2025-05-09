@@ -252,19 +252,14 @@ class TokenProcessing:
             raise RuntimeError(f"获取token数据时出错: {str(e)}")
             
     def compute_distribution(self, df: pd.DataFrame, save_path: Optional[str] = None) -> Dict[str, float]:
-        """计算token分布。
+        """计算token长度分布。
 
         Args:
-            df (pd.DataFrame): 包含token数据的DataFrame
-            save_path (Optional[str], optional): 保存分布图的路径. Defaults to None.
+            df: 包含token数据的DataFrame
+            save_path: 可选的保存路径
 
         Returns:
-            Dict[str, float]: token分布字典
-
-        Raises:
-            ValueError: 当输入数据无效或保存路径无效时
-            MemoryError: 当内存不足时
-            RuntimeError: 当处理过程中发生错误时
+            Dict[str, float]: token长度分布
         """
         if df is None:
             raise ValueError("输入DataFrame不能为None")
@@ -344,20 +339,14 @@ class TokenProcessing:
                 raise ValueError("没有写入权限")
 
         try:
-            # 检查内存使用
-            process = psutil.Process()
-            if process.memory_info().rss > 1024 * 1024 * 1024:  # 1GB限制
-                raise MemoryError("内存使用过高，请减少输入数据量")
-
             # 确定使用哪一列
             token_column = 'input_tokens' if 'input_tokens' in df.columns else 'token'
             if token_column not in df.columns:
                 logger.warning(f"DataFrame中缺少所需的列: {token_column}")
                 return {}
 
-            # 展平所有token列表并计算频率分布
-            all_tokens = []
-            total_tokens = 0
+            # 展平所有token列表并计算长度分布
+            token_lengths = []
             batch_size = 1000  # 批处理大小
 
             for i in range(0, len(df), batch_size):
@@ -365,56 +354,47 @@ class TokenProcessing:
                 for tokens in batch[token_column]:
                     if tokens is None or (isinstance(tokens, list) and not tokens):
                         continue
-                    if isinstance(tokens, list):
-                        valid_tokens = [str(t) for t in tokens if t is not None and str(t).strip()]
-                        all_tokens.extend(valid_tokens)
-                        total_tokens += len(valid_tokens)
+                    
+                    if isinstance(tokens, (list, np.ndarray)):
+                        # 过滤掉None和空字符串
+                        valid_tokens = [t for t in tokens if t is not None and str(t).strip()]
+                        if valid_tokens:
+                            token_lengths.append(len(valid_tokens))
                     else:
                         token_str = str(tokens).strip()
                         if token_str:
-                            all_tokens.append(token_str)
-                            total_tokens += 1
-
-                # 检查内存使用
-                if process.memory_info().rss > 1024 * 1024 * 1024:  # 1GB限制
-                    raise MemoryError("内存使用过高，请减少输入数据量")
+                            # 如果是字符串，按空格分割计算长度
+                            token_lengths.append(len(token_str.split()))
 
                 # 报告进度
                 if i % 10000 == 0:
                     logger.info(f"已处理 {i}/{len(df)} 行数据")
 
-            if not all_tokens:
+            if not token_lengths:
                 logger.warning("没有找到有效的token")
                 return {}
 
-            # 计算分布
-            distribution = {}
-            counter = Counter(all_tokens)
-            for token, count in counter.items():
-                distribution[token] = count / total_tokens
+            # 计算分布并确保类型正确
+            total_count = len(token_lengths)
+            counter = Counter(token_lengths)
+            distribution = {
+                int(length): float(count/total_count)
+                for length, count in counter.items()
+            }
 
-            # 如果提供了保存路径，则保存分布图
+            # 保存分布图
             if save_path:
                 try:
                     self._save_distribution_plot(distribution, save_path)
-                except ValueError as e:
-                    logger.error(f"保存分布图时出错: {str(e)}")
-                    raise
                 except Exception as e:
                     logger.error(f"保存分布图时出错: {str(e)}")
                     raise ValueError(f"保存分布图失败: {str(e)}")
 
             return distribution
 
-        except MemoryError as e:
-            logger.error(f"内存不足: {str(e)}")
-            raise
-        except ValueError as e:
-            logger.error(f"无效的输入或路径: {str(e)}")
-            raise
         except Exception as e:
-            logger.error(f"计算分布时出错: {str(e)}")
-            raise RuntimeError(f"计算分布时出错: {str(e)}")
+            logger.error(f"计算token分布失败: {str(e)}")
+            raise RuntimeError(f"计算token分布失败: {str(e)}")
         
     def _save_distribution_plot(self, distribution: Dict[str, float], save_path: Union[str, Path]) -> None:
         """保存分布图到指定路径。

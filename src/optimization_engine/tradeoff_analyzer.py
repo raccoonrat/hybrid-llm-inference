@@ -120,22 +120,19 @@ class TradeoffAnalyzer:
         # lambda_values = np.arange(0.0, 1.1, 0.1)
         lambda_values = np.arange(0.0, 1.1, 0.5)  # 只测3个点
         results = {}
-
+        # 新增：采样点详细记录
+        sample_points = []
         for lambda_param in lambda_values:
             self.logger.info(f"\n开始测试 λ={lambda_param} 的性能")
             cost_function = CostFunction(lambda_param, self.hardware_config)
             total_energy = 0
             total_runtime = 0
             total_tasks = 0
-            
             try:
                 for input_tokens, input_freq in distribution["distribution"]["input_distribution"].items():
                     for output_tokens, output_freq in distribution["distribution"]["output_distribution"].items():
-                        # 根据输入长度选择合适的测试输入
                         input_level = min(len(test_inputs)-1, input_tokens // 256)
                         test_input = test_inputs[input_level]
-                        
-                        # 创建实际的任务函数
                         def inference_task():
                             return model.infer(
                                 test_input,
@@ -144,65 +141,59 @@ class TradeoffAnalyzer:
                                 top_p=0.9,
                                 repetition_penalty=1.1
                             )
-                        
-                        self.logger.info(f"测试配置: input_tokens={input_tokens}, output_tokens={output_tokens}")
+                        self.logger.info(f"测试配置: lambda={lambda_param}, input_tokens={input_tokens}, output_tokens={output_tokens}")
                         self.logger.debug(f"测试输入: {test_input[:200]}...")
-                        
                         try:
-                            # 获取性能指标
                             metrics = cost_function.calculate(
                                 input_tokens,
                                 output_tokens,
                                 task=inference_task,
                                 return_metrics=True
                             )
-                            
-                            self.logger.info(f"性能指标: {metrics}")
-                            
-                            # 验证性能指标的有效性
+                            self.logger.info(f"测量结果: lambda={lambda_param}, input_tokens={input_tokens}, output_tokens={output_tokens}, metrics={metrics}")
+                            # 新增：采样点详细记录
+                            sample_points.append({
+                                "lambda": float(lambda_param),
+                                "input_tokens": input_tokens,
+                                "output_tokens": output_tokens,
+                                "metrics": metrics
+                            })
                             if not metrics:
                                 raise ValueError("性能指标为空")
-                                
                             energy = metrics.get("energy", 0)
                             runtime = metrics.get("runtime", 0)
-                            
                             if energy <= 0:
                                 self.logger.warning(f"无效的能耗值: {energy}")
                                 continue
-                                
                             if runtime <= 0:
                                 self.logger.warning(f"无效的运行时间: {runtime}")
                                 continue
-                            
                             total_energy += energy * input_freq * output_freq
                             total_runtime += runtime * input_freq * output_freq
                             total_tasks += input_freq * output_freq
-                                
                         except Exception as e:
                             self.logger.error(f"测试失败: {str(e)}")
                             continue
-
             except Exception as e:
                 self.logger.error(f"处理分布数据时出错: {str(e)}")
                 continue
-
-            # 计算加权平均值
             if total_tasks > 0:
                 avg_energy = total_energy / total_tasks
                 avg_runtime = total_runtime / total_tasks
-                
                 results[str(lambda_param)] = {
                     "energy": avg_energy,
                     "runtime": avg_runtime
                 }
-                
                 self.logger.info(f"λ={lambda_param} 的平均结果: Energy={float(avg_energy):.3f}J, Runtime={float(avg_runtime):.3f}s")
             else:
                 self.logger.warning(f"λ={lambda_param} 没有有效的测试结果")
-
         if not results:
             raise ValueError("没有生成任何有效的权衡结果")
-
+        # 保存采样点详细数据
+        sample_path = self.output_dir / 'tradeoff_samples.json'
+        with open(sample_path, 'w', encoding='utf-8') as f:
+            json.dump(sample_points, f, indent=2, ensure_ascii=False)
+        self.logger.info(f"采样点详细数据已保存到 {sample_path}")
         # 保存结果
         result_path = self.output_dir / 'tradeoff_results.json'
         with open(result_path, 'w') as f:
