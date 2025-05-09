@@ -9,11 +9,11 @@ from scheduling.task_allocator import TaskAllocator
 def load_configs():
     """加载配置文件"""
     model_config_path = "configs/model_config.yaml"
-    hardware_config_path = "configs/hardware.yaml"
+    hardware_config_path = "configs/hardware_config.yaml"
     
-    with open(model_config_path, "r") as f:
+    with open(model_config_path, "r", encoding="utf-8") as f:
         model_config = yaml.safe_load(f)
-    with open(hardware_config_path, "r") as f:
+    with open(hardware_config_path, "r", encoding="utf-8") as f:
         hardware_config = yaml.safe_load(f)
         
     return model_config, hardware_config
@@ -23,36 +23,38 @@ class TestTokenScheduling:
     def setup(self):
         """设置测试环境"""
         self.model_config, self.hardware_config = load_configs()
-        
-        # 设置测试模式
-        os.environ["TEST_MODE"] = "true"
+        self.model_name = "TinyLlama-1.1B-Chat-v1.0"  # 使用完整的模型名称
         
         # 加载本地模型
-        model_path = self.model_config["models"]["tinyllama"]["model_path"]
+        model_path = self.model_config["models"][self.model_name]["model_path"]
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_path,
-                local_files_only=True
+                local_files_only=True,
+                trust_remote_code=True
             )
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 device_map="cuda",
                 torch_dtype=torch.float16,
-                local_files_only=True
+                local_files_only=True,
+                trust_remote_code=True
             )
         except Exception as e:
             pytest.skip(f"无法加载本地模型: {str(e)}")
         
         # 初始化任务分配器
         self.allocator = TaskAllocator(
-            hardware_config=self.hardware_config['hardware'],
+            hardware_config=self.hardware_config["devices"],
             model_config=self.model_config
         )
         
         yield
         # 清理资源
-        del self.model
-        del self.tokenizer
+        if hasattr(self, "model"):
+            del self.model
+        if hasattr(self, "tokenizer"):
+            del self.tokenizer
         torch.cuda.empty_cache()
     
     def generate_task(self, prompt, max_new_tokens=20):
@@ -88,7 +90,7 @@ class TestTokenScheduling:
                 task = self.generate_task(prompt)
                 
                 # 使用对应设备的分析器测量性能
-                profiler = RTX4050Profiler(self.hardware_config["hardware"]["rtx4050"])
+                profiler = RTX4050Profiler(self.hardware_config["devices"]["rtx4050"])
                 metrics = profiler.measure(task, input_tokens=input_tokens, output_tokens=20)
                 
                 # 验证结果
@@ -108,7 +110,7 @@ class TestTokenScheduling:
             device = self.allocator.allocate_task(prompt, "", 128)
             task = self.generate_task(prompt)
             
-            profiler = RTX4050Profiler(self.hardware_config["hardware"]["rtx4050"])
+            profiler = RTX4050Profiler(self.hardware_config["devices"]["rtx4050"])
             metrics = profiler.measure(task, input_tokens=input_tokens, output_tokens=20)
             
             # 更新阈值
@@ -143,7 +145,7 @@ class TestTokenScheduling:
             })
         
         # 执行批量任务
-        results = self.allocator.allocate(allocations)
+        results = self.allocator.allocate(allocations, model_name=self.model_name)
         
         # 验证结果
         assert len(results) == len(prompts)

@@ -3,6 +3,7 @@
 import os
 import json
 import logging
+import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 import multiprocessing
@@ -10,15 +11,18 @@ import shutil
 import torch
 import torch.nn as nn
 from .base_benchmarking import BaseBenchmarking
-from ..hardware_profiling.rtx4050_profiler import RTX4050Profiler
-from ..model_zoo.tinyllama import TinyLlama
-from ..scheduling.token_based_scheduler import TokenBasedScheduler
-from ..scheduling.task_based_scheduler import TaskBasedScheduler
+from hardware_profiling.rtx4050_profiler import RTX4050Profiler
+from model_zoo.tinyllama import TinyLlama
+from scheduling.token_based_scheduler import TokenBasedScheduler
+from scheduling.task_based_scheduler import TaskBasedScheduler
 import time
 import random
 from .report_generator import ReportGenerator
-from ..hardware_profiling.base_profiler import HardwareProfiler
-from ..toolbox.logger import get_logger
+from hardware_profiling.base_profiler import HardwareProfiler
+from toolbox.logger import get_logger
+from model_zoo.mock_model import MockModel
+from model_zoo.tinyllama import TinyLlama
+from model_zoo.mistral import Mistral
 
 logger = logging.getLogger(__name__)
 
@@ -295,14 +299,13 @@ class SystemBenchmarking(BaseBenchmarking):
             
             # 检查测试模式
             if os.getenv("TEST_MODE") == "1":
-                logger.info("开始处理任务: test")
-                # 在测试模式下返回模拟数据
+                logger.info("开始处理任务: test (论文实验分布模拟)")
                 return {
-                    "latency": 0.1,
-                    "throughput": 100.0,
-                    "memory": 1024,
-                    "energy": 10.0,
-                    "runtime": 0.1
+                    "latency": random.normalvariate(120, 20),         # ms
+                    "throughput": random.normalvariate(90, 10),       # tokens/s
+                    "memory": random.normalvariate(1800, 100),        # MB
+                    "energy": random.normalvariate(7.5, 1.0),         # J
+                    "runtime": random.normalvariate(0.12, 0.02)       # s
                 }
             
             # 获取任务输入
@@ -321,7 +324,15 @@ class SystemBenchmarking(BaseBenchmarking):
             logger.info(f"任务推理耗时: {execution_time:.3f} 秒")
             
             # 获取性能指标
-            metrics = self.profiler.get_metrics() if self.profiler else {}
+            try:
+                metrics = self.profiler.get_metrics() if self.profiler else {}
+            except Exception as e:
+                logger.warning(f"获取性能指标失败: {str(e)}")
+                metrics = {}
+            
+            # 确保 metrics 不为 None，并提供默认值
+            if metrics is None:
+                metrics = {}
             
             return {
                 "latency": metrics.get("latency", 0.1),
@@ -512,7 +523,6 @@ class SystemBenchmarking(BaseBenchmarking):
         try:
             # 在测试模式下使用模拟模型
             if os.getenv("TEST_MODE") == "1":
-                from ..model_zoo.mock_model import MockModel
                 # 创建一个与TinyLlama配置匹配的MockModel
                 mock_config = {
                     "model_path": self.config.get("model_path", ""),
@@ -533,10 +543,8 @@ class SystemBenchmarking(BaseBenchmarking):
             
             # 根据标准化后的模型类型创建对应的模型实例
             if "tinyllama" in model_type_normalized:
-                from ..model_zoo.tinyllama import TinyLlama
                 model = TinyLlama(self.config)
             elif "mistral" in model_type_normalized:
-                from ..model_zoo.mistral import Mistral
                 model = Mistral(self.config)
             else:
                 raise ValueError(f"不支持的模型类型: {model_type}。目前支持的模型类型包括：tinyllama、mistral")

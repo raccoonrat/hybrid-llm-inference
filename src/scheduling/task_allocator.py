@@ -1,7 +1,7 @@
 # hybrid-llm-inference/src/scheduling/task_allocator.py
 from toolbox.logger import get_logger
-from ..hardware_profiling import get_profiler
-from ..model_zoo.base_model import BaseModel
+from hardware_profiling import get_profiler
+from model_zoo.base_model import BaseModel
 from typing import Dict, Any, List, Optional
 import numpy as np
 import logging

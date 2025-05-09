@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Tuple, Union
-from ..toolbox.logger import get_logger
+from toolbox.logger import get_logger
 import logging
 from pathlib import Path
 
@@ -69,16 +69,16 @@ class BaseModel(ABC):
         else:
             return len(text.split())
     
-    def infer(self, input_text: str) -> str:
+    def infer(self, input_text: str, **kwargs) -> str:
         """执行推理。子类需要实现此方法。
 
         Args:
             input_text: 输入文本
-
+            **kwargs: 其他推理参数
         Returns:
             str: 输出文本
         """
-        raise NotImplementedError("子类必须实现 infer 方法")
+        raise NotImplementedError("子类必须实现 infer 方法，且需支持 **kwargs")
     
     @abstractmethod
     def _validate_base_config(self) -> None:
