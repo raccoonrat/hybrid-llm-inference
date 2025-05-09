@@ -330,6 +330,13 @@ class ReportGenerator:
                 chart_files = self._generate_visualizations(benchmark_results)
             except Exception as e:
                 logger.warning(f"生成可视化图表失败: {str(e)}")
+            # 新增: 无论 output_format, 只要 tradeoff_results 存在, 就生成 tradeoff 曲线
+            if tradeoff_results is not None:
+                try:
+                    tradeoff_curve_path = self.generate_tradeoff_curve(tradeoff_results)
+                    chart_files.append(tradeoff_curve_path)
+                except Exception as e:
+                    logger.warning(f"生成 tradeoff 曲线失败: {str(e)}")
         # 生成报告文件
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # TEST_MODE=1 下强制覆盖 tradeoff_results（提前）

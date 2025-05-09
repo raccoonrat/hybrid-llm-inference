@@ -145,6 +145,13 @@ class MockModel(nn.Module):
         """
         return self.generate(input_text, **kwargs)
 
+    def cleanup(self) -> None:
+        """清理资源。"""
+        # 清理模型资源
+        self.linear = None
+        torch.cuda.empty_cache()
+        logger.info("MockModel 资源已清理")
+
 class MockTokenizer:
     """
     模拟的分词器类。

@@ -18,7 +18,19 @@ def test_base_benchmarking_config_validation():
         "model_name": "test_model",
         "dataset_path": "/path/to/dataset",
         "batch_size": -1,
-        "model_config": {},
+        "model_config": {
+            "models": {
+                "mock": {
+                    "model_type": "mock",
+                    "model_path": "mock_path",
+                    "model_name": "mock",
+                    "mode": "inference",
+                    "max_length": 128,
+                    "mixed_precision": False,
+                    "device_placement": "cpu"
+                }
+            }
+        },
         "hardware_config": {}
     }
     with pytest.raises(ValueError, match=r".*batch_size.*"):
@@ -34,7 +46,12 @@ def test_base_benchmarking_config_validation():
             "models": {
                 "mock": {
                     "model_type": "mock",
-                    "model_path": "mock_path"
+                    "model_path": "mock_path",
+                    "model_name": "mock",
+                    "mode": "inference",
+                    "max_length": 128,
+                    "mixed_precision": False,
+                    "device_placement": "cpu"
                 }
             }
         },
@@ -56,7 +73,12 @@ def test_base_benchmarking_run():
             "models": {
                 "mock": {
                     "model_type": "mock",
-                    "model_path": "mock_path"
+                    "model_path": "mock_path",
+                    "model_name": "mock",
+                    "mode": "inference",
+                    "max_length": 128,
+                    "mixed_precision": False,
+                    "device_placement": "cpu"
                 }
             }
         },
@@ -84,7 +106,12 @@ def test_base_benchmarking_collect_metrics():
             "models": {
                 "mock": {
                     "model_type": "mock",
-                    "model_path": "mock_path"
+                    "model_path": "mock_path",
+                    "model_name": "mock",
+                    "mode": "inference",
+                    "max_length": 128,
+                    "mixed_precision": False,
+                    "device_placement": "cpu"
                 }
             }
         },
@@ -113,7 +140,12 @@ def test_base_benchmarking_validate_metrics():
             "models": {
                 "mock": {
                     "model_type": "mock",
-                    "model_path": "mock_path"
+                    "model_path": "mock_path",
+                    "model_name": "mock",
+                    "mode": "inference",
+                    "max_length": 128,
+                    "mixed_precision": False,
+                    "device_placement": "cpu"
                 }
             }
         },

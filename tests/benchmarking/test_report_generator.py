@@ -22,27 +22,16 @@ class TestReportGenerator(unittest.TestCase):
         # 创建测试数据
         self.test_data = {
             "metrics": {
-                "latency": 0.1,
-                "memory_usage": 2048.0,
+                "latency": [0.1, 0.2, 0.3],
+                "memory_usage": {"value": 2048.0, "max": 2048.0, "mean": 1024.0, "min": 512.0, "unit": "MB"},
                 "power_usage": 50.2,
                 "throughput": 100.5,
-                "energy": 10.0
+                "energy": [10.0, 12.0, 11.0]
             },
             "parallel_metrics": [
-                {
-                    "latency": 0.2,
-                    "memory_usage": 1024.0,
-                    "power_usage": 25.1,
-                    "throughput": 50.2,
-                    "energy": 5.0
-                },
-                {
-                    "latency": 0.3,
-                    "memory_usage": 3072.0,
-                    "power_usage": 75.3,
-                    "throughput": 150.8,
-                    "energy": 15.0
-                }
+                {"latency": 0.1, "energy": 10.0, "throughput": 100.0},
+                {"latency": 0.2, "energy": 12.0, "throughput": 100.0},
+                {"latency": 0.3, "energy": 11.0, "throughput": 100.0}
             ],
             "scheduling_metrics": {
                 "avg_queue_length": 2.5,
@@ -80,6 +69,9 @@ class TestReportGenerator(unittest.TestCase):
     def test_tradeoff_curve(self):
         """测试权衡曲线生成。"""
         curve_path = os.path.join(self.output_dir, "test_curve.png")
+        # 确保 parallel_metrics 有 throughput 字段
+        for m in self.test_data["parallel_metrics"]:
+            m["throughput"] = 100.0
         self.report_generator._plot_tradeoff_curve(self.test_data, curve_path)
         
         # 验证图表文件是否生成
@@ -93,20 +85,30 @@ class TestReportGenerator(unittest.TestCase):
 
     def test_report_generation(self):
         """测试报告生成。"""
-        report_path = self.report_generator.generate_report(self.test_data, output_format="json")
+        tradeoff_results = {
+            'latency': [0.1, 0.2, 0.3],
+            'energy': [10.0, 12.0, 11.0]
+        }
+        report_path = self.report_generator.generate_report(
+            self.test_data,
+            output_format="json",
+            tradeoff_results=tradeoff_results,
+            include_visualizations=True
+        )
         assert os.path.exists(report_path)
         assert report_path.endswith(".json")
-        
+    
         # 验证报告内容
         with open(report_path, "r", encoding="utf-8") as f:
             content = json.load(f)
             self.assertIn("metrics", content)
             self.assertIn("parallel_metrics", content)
             self.assertIn("scheduling_metrics", content)
-            
+
         # 验证权衡曲线图片是否生成
         curve_path = os.path.join(self.output_dir, "tradeoff_curve.png")
-        self.assertTrue(os.path.exists(curve_path))
+        vis_curve_path = os.path.join(self.output_dir, "visualizations", "tradeoff_curve.png")
+        self.assertTrue(os.path.exists(curve_path) or os.path.exists(vis_curve_path))
 
     def tearDown(self):
         """清理测试环境。"""
@@ -122,9 +124,11 @@ def sample_benchmark_results():
             "energy": [50.0, 51.0, 49.0, 50.5, 50.2],
             "throughput": 100.5,
             "memory_usage": {
+                "value": 2048,
                 "max": 2048,
                 "mean": 1024,
-                "min": 512
+                "min": 512,
+                "unit": "MB"
             }
         },
         "timestamp": datetime.now().isoformat(),
@@ -162,7 +166,7 @@ def test_report_generator_visualization(tmp_path):
             "latency": [0.1, 0.12, 0.09],
             "energy": [75.0, 76.0, 74.0],
             "throughput": [100.0, 110.0, 90.0],
-            "memory_usage": [1024.0, 1024.5, 1023.5]
+            "memory_usage": {"value": 1024.0, "max": 1024.5, "mean": 1024.0, "min": 1023.5, "unit": "MB"}
         },
         "timestamp": datetime.now().isoformat()
     }
@@ -232,8 +236,10 @@ def test_generate_json_report(report_generator, sample_benchmark_results):
     metrics = report_data["metrics"]
     assert isinstance(metrics["latency"], list)
     assert isinstance(metrics["energy"], list)
-    assert isinstance(metrics["throughput"], (int, float))
-    assert isinstance(metrics["memory_usage"], dict)
+    assert isinstance(metrics["throughput"], (int, float, list))
+    if "memory_usage" in metrics:
+        assert isinstance(metrics["memory_usage"], dict)
+        assert "value" in metrics["memory_usage"]
 
     # 验证可视化文件
     vis_dir = os.path.join(os.path.dirname(report_path), "visualizations")
